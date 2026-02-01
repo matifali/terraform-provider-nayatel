@@ -1,64 +1,256 @@
-# Terraform Provider Scaffolding (Terraform Plugin Framework)
+# Terraform Provider for Nayatel Cloud
 
-_This template repository is built on the [Terraform Plugin Framework](https://github.com/hashicorp/terraform-plugin-framework). The template repository built on the [Terraform Plugin SDK](https://github.com/hashicorp/terraform-plugin-sdk) can be found at [terraform-provider-scaffolding](https://github.com/hashicorp/terraform-provider-scaffolding). See [Which SDK Should I Use?](https://developer.hashicorp.com/terraform/plugin/framework-benefits) in the Terraform documentation for additional information._
+This Terraform provider enables you to manage resources on [Nayatel Cloud](https://cloud.nayatel.com), including instances, networks, routers, floating IPs, and security groups.
 
-This repository is a *template* for a [Terraform](https://www.terraform.io) provider. It is intended as a starting point for creating Terraform providers, containing:
-
-- A resource and a data source (`internal/provider/`),
-- Examples (`examples/`) and generated documentation (`docs/`),
-- Miscellaneous meta files.
-
-These files contain boilerplate code that you will need to edit to create your own Terraform provider. Tutorials for creating Terraform providers can be found on the [HashiCorp Developer](https://developer.hashicorp.com/terraform/tutorials/providers-plugin-framework) platform. _Terraform Plugin Framework specific guides are titled accordingly._
-
-Please see the [GitHub template repository documentation](https://help.github.com/en/github/creating-cloning-and-archiving-repositories/creating-a-repository-from-a-template) for how to create a new repository from this template on GitHub.
-
-Once you've written your provider, you'll want to [publish it on the Terraform Registry](https://developer.hashicorp.com/terraform/registry/providers/publishing) so that others can use it.
+> **Community project notice:** This provider is community-maintained by **Muhammad Atif Ali** and is **not** an official Nayatel product.
+>
+> It is not affiliated with, endorsed by, or supported by Nayatel.
 
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://golang.org/doc/install) >= 1.24
+- [Go](https://golang.org/doc/install) >= 1.24 (for building from source)
+- A Nayatel Cloud account
+
+## Installation
+
+### From Source
+
+```shell
+git clone https://github.com/matifali/terraform-provider-nayatel.git
+cd terraform-provider-nayatel
+go build -o terraform-provider-nayatel
+```
+
+### Local Development Override
+
+Create a `~/.terraformrc` file with the following content to use your locally built provider:
+
+```hcl
+provider_installation {
+  dev_overrides {
+    "matifali/nayatel" = "/path/to/terraform-provider-nayatel"
+  }
+  direct {}
+}
+```
+
+## Authentication
+
+The provider supports three authentication methods:
+
+### Option 1: Environment Variables (Recommended)
+
+```shell
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_PASSWORD="your-password"
+```
+
+### Option 2: Token-based Authentication
+
+```shell
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_TOKEN="your-jwt-token"
+```
+
+### Option 3: Provider Block Configuration
+
+```hcl
+provider "nayatel" {
+  username = "your-username"
+  password = "your-password"
+  # OR
+  # token = "your-jwt-token"
+}
+```
+
+## Usage
+
+```hcl
+terraform {
+  required_providers {
+    nayatel = {
+      source = "matifali/nayatel"
+    }
+  }
+}
+
+provider "nayatel" {}
+
+# Create a network
+resource "nayatel_network" "main" {
+  bandwidth_limit = 1
+}
+
+# Create a router
+resource "nayatel_router" "main" {
+  name       = "main-router"
+  network_id = nayatel_network.main.id
+  subnet_id  = nayatel_network.main.subnet_id
+}
+
+# Create an instance
+resource "nayatel_instance" "web" {
+  name            = "webserver"
+  image_id        = "your-image-id"
+  cpu             = 2
+  ram             = 2
+  disk            = 20
+  network_id      = nayatel_network.main.id
+  ssh_fingerprint = "your-ssh-public-key"
+
+  depends_on = [nayatel_router.main]
+}
+
+# Attach a floating IP
+resource "nayatel_floating_ip_attachment" "web" {
+  instance_id = nayatel_instance.web.id
+}
+
+# Attach a security group
+resource "nayatel_security_group_attachment" "web" {
+  instance_id         = nayatel_instance.web.id
+  security_group_name = "default"
+}
+```
+
+## Resources
+
+### nayatel_instance
+
+Creates and manages a compute instance.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Name of the instance |
+| `image_id` | string | Yes | ID of the OS image |
+| `cpu` | number | Yes | Number of vCPUs |
+| `ram` | number | Yes | RAM in GB |
+| `disk` | number | Yes | Disk size in GB |
+| `network_id` | string | Yes | ID of the network |
+| `ssh_fingerprint` | string | Yes | SSH public key |
+| `id` | string | Computed | Instance ID |
+| `private_ip` | string | Computed | Private IP address |
+| `status` | string | Computed | Instance status |
+
+### nayatel_network
+
+Creates and manages a network with an associated subnet.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bandwidth_limit` | number | No | Bandwidth limit in Gbps (default: 1) |
+| `id` | string | Computed | Network ID |
+| `name` | string | Computed | Network name |
+| `subnet_id` | string | Computed | Associated subnet ID |
+
+### nayatel_router
+
+Creates and manages a router with external gateway.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Name of the router |
+| `network_id` | string | Yes | ID of the network to connect |
+| `subnet_id` | string | Yes | ID of the subnet to connect |
+| `id` | string | Computed | Router ID |
+
+### nayatel_floating_ip_attachment
+
+Attaches a floating IP to an instance.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance_id` | string | Yes | ID of the instance |
+| `id` | string | Computed | Floating IP ID |
+| `ip_address` | string | Computed | Public IP address |
+
+### nayatel_security_group_attachment
+
+Attaches a security group to an instance.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `instance_id` | string | Yes | ID of the instance |
+| `security_group_name` | string | Yes | Name of the security group |
+| `id` | string | Computed | Attachment ID |
+
+## Data Sources
+
+### nayatel_images
+
+Lists available OS images.
+
+```hcl
+data "nayatel_images" "available" {}
+
+output "images" {
+  value = data.nayatel_images.available.images
+}
+```
+
+### nayatel_flavors
+
+Lists available instance flavors (CPU/RAM/Disk combinations).
+
+```hcl
+data "nayatel_flavors" "available" {}
+```
+
+### nayatel_ssh_keys
+
+Lists available SSH keys.
+
+```hcl
+data "nayatel_ssh_keys" "available" {}
+```
+
+### nayatel_networks
+
+Lists available networks.
+
+```hcl
+data "nayatel_networks" "available" {}
+```
+
+### nayatel_security_groups
+
+Lists available security groups.
+
+```hcl
+data "nayatel_security_groups" "available" {}
+```
 
 ## Building The Provider
 
-1. Clone the repository
-1. Enter the repository directory
-1. Build the provider using the Go `install` command:
+```shell
+go build -o terraform-provider-nayatel
+```
+
+## Developing the Provider
+
+To compile the provider:
 
 ```shell
 go install
 ```
 
-## Adding Dependencies
-
-This provider uses [Go modules](https://github.com/golang/go/wiki/Modules).
-Please see the Go documentation for the most up to date information about using Go modules.
-
-To add a new dependency `github.com/author/dependency` to your Terraform provider:
+To generate or update documentation:
 
 ```shell
-go get github.com/author/dependency
-go mod tidy
+make generate
 ```
 
-Then commit the changes to `go.mod` and `go.sum`.
-
-## Using the provider
-
-Fill this in for each provider
-
-## Developing the Provider
-
-If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (see [Requirements](#requirements) above).
-
-To compile the provider, run `go install`. This will build the provider and put the provider binary in the `$GOPATH/bin` directory.
-
-To generate or update documentation, run `make generate`.
-
-In order to run the full suite of Acceptance tests, run `make testacc`.
-
-*Note:* Acceptance tests create real resources, and often cost money to run.
+To run the acceptance tests:
 
 ```shell
 make testacc
 ```
+
+**Note:** Acceptance tests create real resources and may incur costs.
+
+## License
+
+This project is licensed under the Mozilla Public License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Muhammad Atif Ali.

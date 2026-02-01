@@ -1,3 +1,6 @@
+# Compiled provider binary
+terraform-provider-nayatel
+
 *.dll
 *.exe
 .DS_Store
@@ -33,3 +36,6 @@ website/vendor
 
 # Keep windows files with windows line endings
 *.winfile eol=crlf
+# Test directory terraform files
+test/.terraform*
+test/*.tfstate*

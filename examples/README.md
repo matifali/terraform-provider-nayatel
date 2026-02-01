@@ -1,9 +1,40 @@
 # Examples
 
-This directory contains examples that are mostly used for documentation, but can also be run/tested manually via the Terraform CLI.
+This directory contains example Terraform configurations for the Nayatel provider.
 
-The document generation tool looks for files in the following locations by default. All other *.tf files besides the ones mentioned below are ignored by the documentation tool. This is useful for creating examples that can run and/or are testable even if some parts are not relevant for the documentation.
+## main.tf
 
-* **provider/provider.tf** example file for the provider index page
-* **data-sources/`full data source name`/data-source.tf** example file for the named data source page
-* **resources/`full resource name`/resource.tf** example file for the named data source page
+A complete example showing how to:
+- Configure the Nayatel provider
+- Query available images, SSH keys, and security groups
+- Create a network and router
+- Deploy an instance
+- Attach a floating IP
+- Attach a security group
+
+## Usage
+
+1. Set your credentials:
+
+```shell
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_PASSWORD="your-password"
+```
+
+2. Initialize Terraform:
+
+```shell
+terraform init
+```
+
+3. Review the plan:
+
+```shell
+terraform plan
+```
+
+4. Apply the configuration:
+
+```shell
+terraform apply
+```
