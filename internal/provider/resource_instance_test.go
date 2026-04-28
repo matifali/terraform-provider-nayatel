@@ -16,13 +16,14 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	routerName := testAccName("tf-acc-inst-router")
 	instanceName := testAccName("tf-acc-inst")
 	imageID := testAccImageID()
+	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID),
+				Config: testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_instance.test", "id"),
 					resource.TestCheckResourceAttr("nayatel_instance.test", "name", instanceName),
@@ -52,7 +53,7 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	})
 }
 
-func testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID string) string {
+func testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 
@@ -62,7 +63,7 @@ resource "nayatel_ssh_key" "test" {
 }
 
 resource "nayatel_network" "test" {
-  bandwidth_limit = 1
+  bandwidth_limit = %d
 }
 
 resource "nayatel_router" "test" {
@@ -81,5 +82,5 @@ resource "nayatel_instance" "test" {
 
   depends_on = [nayatel_router.test]
 }
-`, sshKeyName, publicKey, routerName, instanceName, imageID)
+`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID)
 }

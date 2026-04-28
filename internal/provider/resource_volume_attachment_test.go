@@ -18,13 +18,14 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 	volumeName := testAccName("tf-acc-vol-att")
 	imageID := testAccImageID()
 	volumeSize := testAccVolumeSize(t)
+	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckVolumeAttachments(t, bandwidth) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID, volumeSize),
+				Config: testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID, volumeSize, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_volume_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_volume_attachment.test", "volume_id", "nayatel_volume.test", "id"),
@@ -42,7 +43,7 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 	})
 }
 
-func testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID string, volumeSize int) string {
+func testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID string, volumeSize int, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 
@@ -52,7 +53,7 @@ resource "nayatel_ssh_key" "test" {
 }
 
 resource "nayatel_network" "test" {
-  bandwidth_limit = 1
+  bandwidth_limit = %d
 }
 
 resource "nayatel_router" "test" {
@@ -81,5 +82,5 @@ resource "nayatel_volume_attachment" "test" {
   volume_id   = nayatel_volume.test.id
   instance_id = nayatel_instance.test.id
 }
-`, sshKeyName, publicKey, routerName, instanceName, imageID, volumeName, volumeSize)
+`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID, volumeName, volumeSize)
 }

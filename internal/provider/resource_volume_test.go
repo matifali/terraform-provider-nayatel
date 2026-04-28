@@ -15,7 +15,7 @@ func TestAccVolumeResource_basic(t *testing.T) {
 	size := testAccVolumeSize(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckVolumes(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{

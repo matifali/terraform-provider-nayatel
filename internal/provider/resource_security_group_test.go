@@ -40,13 +40,14 @@ func TestAccSecurityGroupAttachmentResource_basic(t *testing.T) {
 	instanceName := testAccName("tf-acc-sg-att-inst")
 	securityGroupName := testAccName("tf-acc-sg-att")
 	imageID := testAccImageID()
+	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID),
+				Config: testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_security_group_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_security_group_attachment.test", "instance_id", "nayatel_instance.test", "id"),
@@ -85,7 +86,7 @@ data "nayatel_security_groups" "all" {
 `, name, description)
 }
 
-func testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID string) string {
+func testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 
@@ -95,7 +96,7 @@ resource "nayatel_ssh_key" "test" {
 }
 
 resource "nayatel_network" "test" {
-  bandwidth_limit = 1
+  bandwidth_limit = %d
 }
 
 resource "nayatel_router" "test" {
@@ -131,5 +132,5 @@ resource "nayatel_security_group_attachment" "test" {
   instance_id         = nayatel_instance.test.id
   security_group_name = nayatel_security_group.test.name
 }
-`, sshKeyName, publicKey, routerName, instanceName, imageID, securityGroupName)
+`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID, securityGroupName)
 }

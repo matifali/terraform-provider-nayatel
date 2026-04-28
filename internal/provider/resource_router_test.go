@@ -12,13 +12,14 @@ import (
 
 func TestAccRouterResource_basic(t *testing.T) {
 	name := testAccName("tf-acc-router")
+	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccRouterResourceConfig_basic(name),
+				Config: testAccRouterResourceConfig_basic(name, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_router.test", "id"),
 					resource.TestCheckResourceAttr("nayatel_router.test", "name", name),
@@ -37,12 +38,12 @@ func TestAccRouterResource_basic(t *testing.T) {
 	})
 }
 
-func testAccRouterResourceConfig_basic(name string) string {
+func testAccRouterResourceConfig_basic(name string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 
 resource "nayatel_network" "test" {
-  bandwidth_limit = 1
+  bandwidth_limit = %d
 }
 
 resource "nayatel_router" "test" {
@@ -53,5 +54,5 @@ resource "nayatel_router" "test" {
 data "nayatel_routers" "all" {
   depends_on = [nayatel_router.test]
 }
-`, name)
+`, bandwidth, name)
 }

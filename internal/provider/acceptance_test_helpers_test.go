@@ -4,18 +4,33 @@
 package provider
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	nayatelclient "github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
-const testAccDefaultImageID = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919"
+const (
+	testAccDefaultImageID               = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919"
+	testAccDefaultNetworkBandwidthLimit = 1
+)
+
+var testAccNetworkPreviewCache = struct {
+	sync.Mutex
+	results map[int]error
+}{
+	results: make(map[int]error),
+}
 
 func testAccName(prefix string) string {
 	return acctest.RandomWithPrefix(prefix)
@@ -23,10 +38,6 @@ func testAccName(prefix string) string {
 
 func testAccPublicKey(t *testing.T) string {
 	t.Helper()
-
-	if publicKey := os.Getenv("NAYATEL_ACC_PUBLIC_KEY"); publicKey != "" {
-		return publicKey
-	}
 
 	publicKey, _, err := acctest.RandSSHKeyPair(testAccName("tf-acc"))
 	if err != nil {
@@ -57,6 +68,140 @@ func testAccVolumeSize(t *testing.T) int {
 	}
 
 	return 1
+}
+
+func testAccNetworkBandwidthLimit(t *testing.T) int {
+	t.Helper()
+
+	if bandwidth := os.Getenv("NAYATEL_ACC_NETWORK_BANDWIDTH_LIMIT"); bandwidth != "" {
+		value, err := strconv.Atoi(bandwidth)
+		if err != nil || value <= 0 {
+			t.Fatalf("NAYATEL_ACC_NETWORK_BANDWIDTH_LIMIT must be a positive integer, got %q", bandwidth)
+		}
+
+		return value
+	}
+
+	return testAccDefaultNetworkBandwidthLimit
+}
+
+func testAccPreCheckNetworkBandwidth(t *testing.T, bandwidth int) {
+	t.Helper()
+
+	testAccPreCheck(t)
+
+	err := testAccNetworkBandwidthPreviewError(t, bandwidth)
+	if err == nil {
+		return
+	}
+
+	switch {
+	case testAccIsNetworkBandwidthAlreadyExistsError(err):
+		t.Skipf("Skipping network-dependent acceptance test: the live Nayatel account/project already has a network at bandwidth_limit=%d. Set NAYATEL_ACC_NETWORK_BANDWIDTH_LIMIT to another available positive integer to run this test: %s", bandwidth, err)
+	case testAccIsRateLimitedError(err):
+		t.Skipf("Skipping network-dependent acceptance test: Nayatel API rate limited the network preview for bandwidth_limit=%d; retry later: %s", bandwidth, err)
+	default:
+		t.Fatalf("network preview failed for bandwidth_limit=%d before attempting a billable create: %s", bandwidth, err)
+	}
+}
+
+func testAccPreCheckVolumes(t *testing.T) {
+	t.Helper()
+
+	testAccPreCheck(t)
+	if os.Getenv("NAYATEL_ACC_RUN_VOLUME_TESTS") != "1" {
+		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_TESTS=1 to run volume acceptance tests; recent live runs returned 404 from unverified volume endpoints, and volume creation may be billable")
+	}
+}
+
+func testAccPreCheckVolumeAttachments(t *testing.T, bandwidth int) {
+	t.Helper()
+
+	testAccPreCheckVolumes(t)
+	if os.Getenv("NAYATEL_ACC_RUN_VOLUME_ATTACHMENT_TESTS") != "1" {
+		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_ATTACHMENT_TESTS=1 in addition to NAYATEL_ACC_RUN_VOLUME_TESTS=1 to run volume attachment acceptance tests; they create a network/router/instance/volume stack and may incur charges")
+	}
+	testAccPreCheckNetworkBandwidth(t, bandwidth)
+}
+
+func testAccNetworkBandwidthPreviewError(t *testing.T, bandwidth int) error {
+	t.Helper()
+
+	if bandwidth <= 0 {
+		t.Fatalf("network bandwidth limit must be positive, got %d", bandwidth)
+	}
+
+	testAccNetworkPreviewCache.Lock()
+	err, ok := testAccNetworkPreviewCache.results[bandwidth]
+	testAccNetworkPreviewCache.Unlock()
+	if ok {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
+	defer cancel()
+
+	c, err := testAccClientFromEnv(ctx)
+	if err == nil {
+		_, err = c.Networks.Preview(ctx, &nayatelclient.NetworkCreateRequest{BandwidthLimit: bandwidth})
+	}
+
+	testAccNetworkPreviewCache.Lock()
+	testAccNetworkPreviewCache.results[bandwidth] = err
+	testAccNetworkPreviewCache.Unlock()
+
+	return err
+}
+
+func testAccClientFromEnv(ctx context.Context) (*nayatelclient.Client, error) {
+	options := make([]nayatelclient.ClientOption, 0, 2)
+	if baseURL := os.Getenv("NAYATEL_BASE_URL"); baseURL != "" {
+		options = append(options, nayatelclient.WithBaseURL(baseURL))
+	}
+	if projectID := os.Getenv("NAYATEL_PROJECT_ID"); projectID != "" {
+		options = append(options, nayatelclient.WithProjectID(projectID))
+	}
+
+	username := os.Getenv("NAYATEL_USERNAME")
+	if token := os.Getenv("NAYATEL_TOKEN"); token != "" {
+		return nayatelclient.NewClient(username, token, options...), nil
+	}
+
+	return nayatelclient.NewClientWithLogin(ctx, username, os.Getenv("NAYATEL_PASSWORD"), options...)
+}
+
+func testAccIsNetworkBandwidthAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	var apiErr *nayatelclient.APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode != http.StatusBadRequest {
+			return false
+		}
+		message = strings.ToLower(apiErr.Message)
+	}
+
+	return strings.Contains(message, "network with the bandwidth") &&
+		strings.Contains(message, "already exists")
+}
+
+func testAccIsRateLimitedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *nayatelclient.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "status 429") ||
+		strings.Contains(message, "too many requests") ||
+		strings.Contains(message, "rate limit")
 }
 
 func testAccCheckNestedListNotEmpty(resourceName, listAttr string) resource.TestCheckFunc {

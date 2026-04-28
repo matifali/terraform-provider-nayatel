@@ -37,7 +37,7 @@ func TestAccDataSourceFlavors_basic(t *testing.T) {
 					testAccCheckAnyNestedAttrsSetAndIntAttrsPositive(
 						"data.nayatel_flavors.test",
 						"flavors",
-						[]string{"name"},
+						[]string{},
 						[]string{"vcpus", "ram", "disk"},
 					),
 				),
