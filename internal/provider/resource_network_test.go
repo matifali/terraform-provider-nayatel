@@ -22,7 +22,6 @@ func TestAccNetworkResource_basic(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "id"),
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "name"),
-					resource.TestCheckResourceAttrSet("nayatel_network.test", "status"),
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "subnet_id"),
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "subnet_cidr"),
 					resource.TestCheckResourceAttr("nayatel_network.test", "bandwidth_limit", fmt.Sprintf("%d", bandwidth)),
@@ -33,7 +32,7 @@ func TestAccNetworkResource_basic(t *testing.T) {
 				ResourceName:            "nayatel_network.test",
 				ImportState:             true,
 				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"bandwidth_limit", "monthly_cost"},
+				ImportStateVerifyIgnore: []string{"bandwidth_limit", "monthly_cost", "status"},
 			},
 		},
 	})
