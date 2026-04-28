@@ -6,6 +6,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -197,13 +199,59 @@ func (r *RouterResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	tflog.Debug(ctx, "Deleting router", map[string]any{"id": data.ID.ValueString()})
+	routerID := data.ID.ValueString()
+	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID})
 
-	_, err := r.client.Routers.Delete(ctx, data.ID.ValueString())
-	if err != nil && !client.IsNotFound(err) {
+	if !data.SubnetID.IsNull() && !data.SubnetID.IsUnknown() && data.SubnetID.ValueString() != "" {
+		subnetID := data.SubnetID.ValueString()
+		tflog.Debug(ctx, "Detaching subnet from router before deletion", map[string]any{"id": routerID, "subnet_id": subnetID})
+		_, err := r.client.Routers.RemoveInterface(ctx, routerID, subnetID)
+		if err != nil && !client.IsNotFound(err) {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to remove router interface before deleting router: %s", err))
+			return
+		}
+	}
+
+	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete router: %s", err))
 		return
 	}
+}
+
+func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID string) error {
+	var err error
+	backoffs := []time.Duration{0, 2 * time.Second, 4 * time.Second}
+	for attempt, backoff := range backoffs {
+		if backoff > 0 {
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		_, err = r.client.Routers.Delete(ctx, routerID)
+		if err == nil || client.IsNotFound(err) || !routerDeleteErrorMentionsActiveInterface(err) {
+			return err
+		}
+
+		tflog.Debug(ctx, "Retrying router deletion after active-interface error", map[string]any{"id": routerID, "attempt": attempt + 1, "error": err.Error()})
+	}
+
+	return err
+}
+
+func routerDeleteErrorMentionsActiveInterface(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	mentionsAttachment := strings.Contains(message, "active") ||
+		strings.Contains(message, "attached") ||
+		strings.Contains(message, "in use")
+	return (strings.Contains(message, "interface") && (mentionsAttachment || strings.Contains(message, "port"))) ||
+		(strings.Contains(message, "port") && mentionsAttachment)
 }
 
 func (r *RouterResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

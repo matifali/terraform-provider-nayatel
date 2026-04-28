@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 )
 
 // RouterService handles router operations.
@@ -72,6 +74,43 @@ func (s *RouterService) AddInterface(ctx context.Context, routerID, subnetID str
 	}
 
 	return &apiResp, nil
+}
+
+// RemoveInterface removes an interface from a router.
+func (s *RouterService) RemoveInterface(ctx context.Context, routerID, subnetID string) (*APIResponse, error) {
+	payload := map[string]string{"subnet_id": subnetID}
+
+	resp, err := s.client.Delete(ctx, fmt.Sprintf("/iaas/router/%s/interface", routerID), payload)
+	if err != nil {
+		if !isAPIStatus(err, http.StatusNotFound, http.StatusMethodNotAllowed) {
+			return nil, err
+		}
+
+		resp, err = s.client.Post(ctx, fmt.Sprintf("/iaas/router/%s/interface/remove", routerID), payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &apiResp, nil
+}
+
+func isAPIStatus(err error, statusCodes ...int) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	for _, statusCode := range statusCodes {
+		if apiErr.StatusCode == statusCode {
+			return true
+		}
+	}
+	return false
 }
 
 // Delete deletes a router.
