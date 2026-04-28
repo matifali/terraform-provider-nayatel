@@ -200,27 +200,31 @@ func (r *RouterResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 
 	routerID := data.ID.ValueString()
-	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID})
-
-	if !data.SubnetID.IsNull() && !data.SubnetID.IsUnknown() && data.SubnetID.ValueString() != "" {
-		subnetID := data.SubnetID.ValueString()
-		tflog.Debug(ctx, "Detaching subnet from router before deletion", map[string]any{"id": routerID, "subnet_id": subnetID})
-		_, err := r.client.Routers.RemoveInterface(ctx, routerID, subnetID)
-		if err != nil && !client.IsNotFound(err) {
-			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to remove router interface before deleting router: %s", err))
-			return
-		}
+	subnetID := ""
+	if !data.SubnetID.IsNull() && !data.SubnetID.IsUnknown() {
+		subnetID = data.SubnetID.ValueString()
 	}
 
-	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID); err != nil && !client.IsNotFound(err) {
+	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID})
+
+	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID, subnetID); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete router: %s", err))
 		return
 	}
 }
 
-func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID string) error {
-	var err error
-	backoffs := []time.Duration{0, 2 * time.Second, 4 * time.Second}
+func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID, subnetID string) error {
+	return r.deleteRouterWithInterfaceRetryBackoffs(ctx, routerID, subnetID, []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second})
+}
+
+func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffs(ctx context.Context, routerID, subnetID string, backoffs []time.Duration) error {
+	if subnetID == "" {
+		_, err := r.client.Routers.Delete(ctx, routerID)
+		return err
+	}
+
+	var lastDeleteErr error
+	var lastDetachErr error
 	for attempt, backoff := range backoffs {
 		if backoff > 0 {
 			select {
@@ -230,15 +234,35 @@ func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, rou
 			}
 		}
 
-		_, err = r.client.Routers.Delete(ctx, routerID)
-		if err == nil || client.IsNotFound(err) || !routerDeleteErrorMentionsActiveInterface(err) {
-			return err
+		tflog.Debug(ctx, "Detaching subnet from router before deletion", map[string]any{"id": routerID, "subnet_id": subnetID, "attempt": attempt + 1})
+		_, detachErr := r.client.Routers.RemoveInterface(ctx, routerID, subnetID)
+		if detachErr != nil && !client.IsNotFound(detachErr) {
+			lastDetachErr = detachErr
+			tflog.Debug(ctx, "Router interface detach attempt failed", map[string]any{"id": routerID, "subnet_id": subnetID, "attempt": attempt + 1, "error": detachErr.Error()})
+		} else {
+			lastDetachErr = nil
 		}
 
-		tflog.Debug(ctx, "Retrying router deletion after active-interface error", map[string]any{"id": routerID, "attempt": attempt + 1, "error": err.Error()})
+		_, deleteErr := r.client.Routers.Delete(ctx, routerID)
+		if deleteErr == nil || client.IsNotFound(deleteErr) {
+			return deleteErr
+		}
+
+		lastDeleteErr = deleteErr
+		if !routerDeleteErrorMentionsActiveInterface(deleteErr) {
+			if lastDetachErr != nil {
+				return fmt.Errorf("unable to remove router interface before deleting router: %v; unable to delete router: %w", lastDetachErr, deleteErr)
+			}
+			return deleteErr
+		}
+
+		tflog.Debug(ctx, "Retrying router interface detach and deletion after active-interface error", map[string]any{"id": routerID, "subnet_id": subnetID, "attempt": attempt + 1, "error": deleteErr.Error()})
 	}
 
-	return err
+	if lastDetachErr != nil {
+		return fmt.Errorf("unable to remove router interface before deleting router: %v; unable to delete router after retries: %w", lastDetachErr, lastDeleteErr)
+	}
+	return lastDeleteErr
 }
 
 func routerDeleteErrorMentionsActiveInterface(err error) bool {

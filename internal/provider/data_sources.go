@@ -554,7 +554,9 @@ func (d *FloatingIPsDataSource) Configure(ctx context.Context, req datasource.Co
 }
 
 func (d *FloatingIPsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data FloatingIPsDataSourceModel
+	data := FloatingIPsDataSourceModel{
+		FloatingIPs: []FloatingIPDataModel{},
+	}
 
 	fips, err := d.client.FloatingIPs.List(ctx)
 	if err != nil {

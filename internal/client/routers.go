@@ -79,25 +79,78 @@ func (s *RouterService) AddInterface(ctx context.Context, routerID, subnetID str
 // RemoveInterface removes an interface from a router.
 func (s *RouterService) RemoveInterface(ctx context.Context, routerID, subnetID string) (*APIResponse, error) {
 	payload := map[string]string{"subnet_id": subnetID}
+	deleteEndpoint := fmt.Sprintf("/iaas/router/%s/interface", routerID)
+	postRemoveEndpoint := fmt.Sprintf("/iaas/router/%s/interface/remove", routerID)
 
-	resp, err := s.client.Delete(ctx, fmt.Sprintf("/iaas/router/%s/interface", routerID), payload)
-	if err != nil {
-		if !isAPIStatus(err, http.StatusNotFound, http.StatusMethodNotAllowed) {
-			return nil, err
+	resp, err := s.client.Delete(ctx, deleteEndpoint, payload)
+	if err == nil {
+		apiResp, appErr := decodeRouterInterfaceResponse(resp, "DELETE", deleteEndpoint)
+		if appErr == nil {
+			return apiResp, nil
 		}
-
-		resp, err = s.client.Post(ctx, fmt.Sprintf("/iaas/router/%s/interface/remove", routerID), payload)
-		if err != nil {
-			return nil, err
-		}
+		err = appErr
+	} else if !shouldFallbackRouterInterfaceRemove(err) {
+		return nil, err
 	}
 
+	primaryErr := err
+	resp, err = s.client.Post(ctx, postRemoveEndpoint, payload)
+	if err != nil {
+		return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, primaryErr, err)
+	}
+
+	apiResp, err := decodeRouterInterfaceResponse(resp, "POST", postRemoveEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, primaryErr, err)
+	}
+
+	return apiResp, nil
+}
+
+func shouldFallbackRouterInterfaceRemove(err error) bool {
+	return isAPIStatus(err, http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed) || isRouterAPIResponseError(err)
+}
+
+func decodeRouterInterfaceResponse(resp []byte, method, endpoint string) (*APIResponse, error) {
 	var apiResp APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	if routerAPIResponseFailed(resp, apiResp) {
+		return nil, &routerAPIResponseError{
+			Method:   method,
+			Endpoint: endpoint,
+			Response: apiResp,
+		}
+	}
+
 	return &apiResp, nil
+}
+
+func routerAPIResponseFailed(resp []byte, apiResp APIResponse) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(resp, &fields); err != nil {
+		return false
+	}
+
+	_, statusPresent := fields["status"]
+	return statusPresent && !apiResp.Status
+}
+
+type routerAPIResponseError struct {
+	Method   string
+	Endpoint string
+	Response APIResponse
+}
+
+func (e *routerAPIResponseError) Error() string {
+	return fmt.Sprintf("%s %s returned unsuccessful response: status=%t message=%q", e.Method, e.Endpoint, e.Response.Status, e.Response.Message)
+}
+
+func isRouterAPIResponseError(err error) bool {
+	var apiRespErr *routerAPIResponseError
+	return errors.As(err, &apiRespErr)
 }
 
 func isAPIStatus(err error, statusCodes ...int) bool {

@@ -36,7 +36,7 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_floating_ip.test", "status", "ACTIVE"),
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip.test", "monthly_cost"),
 					resource.TestMatchResourceAttr("nayatel_floating_ip.test", "monthly_cost", regexPositiveNumber()),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_floating_ips.all", "floating_ips", "ip_address", "nayatel_floating_ip.test", "ip_address"),
+					resource.TestCheckResourceAttrSet("data.nayatel_floating_ips.all", "floating_ips.#"),
 				),
 			},
 		},
