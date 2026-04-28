@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -248,7 +249,10 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	data.Name = types.StringValue(sg.Name)
+	configuredName := data.Name.ValueString()
+	if configuredName == "" || (sg.Name != configuredName && !strings.HasPrefix(sg.Name, configuredName+"-")) {
+		data.Name = types.StringValue(sg.Name)
+	}
 	data.Description = types.StringValue(sg.Description)
 
 	// Read rules from API

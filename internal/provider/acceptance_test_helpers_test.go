@@ -114,6 +114,31 @@ func testAccPreCheckVolumes(t *testing.T) {
 	}
 }
 
+func testAccPreCheckFlavors(t *testing.T) {
+	t.Helper()
+
+	testAccPreCheck(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
+	defer cancel()
+
+	c, err := testAccClientFromEnv(ctx)
+	if err != nil {
+		t.Fatalf("failed to create Nayatel client for flavors acceptance precheck: %s", err)
+	}
+
+	flavors, err := c.Flavors.List(ctx)
+	if err != nil {
+		if testAccIsRateLimitedError(err) {
+			t.Skipf("Skipping flavors data source acceptance test: Nayatel API rate limited the flavors lookup; retry later: %s", err)
+		}
+		t.Fatalf("flavors lookup failed before running data source acceptance test: %s", err)
+	}
+	if len(flavors) == 0 {
+		t.Skip("Skipping flavors data source acceptance test: the live Nayatel account/API returned no flavors")
+	}
+}
+
 func testAccPreCheckVolumeAttachments(t *testing.T, bandwidth int) {
 	t.Helper()
 

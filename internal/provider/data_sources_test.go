@@ -27,7 +27,7 @@ func TestAccDataSourceImages_basic(t *testing.T) {
 
 func TestAccDataSourceFlavors_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck:                 func() { testAccPreCheckFlavors(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
