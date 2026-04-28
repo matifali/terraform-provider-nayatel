@@ -15,15 +15,18 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-inst-router")
 	instanceName := testAccName("tf-acc-inst")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID, bandwidth),
+				Config: testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_instance.test", "id"),
 					resource.TestCheckResourceAttr("nayatel_instance.test", "name", instanceName),
@@ -53,10 +56,10 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	})
 }
 
-func testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID string, bandwidth int) string {
+func testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 resource "nayatel_ssh_key" "test" {
   name       = %q
   public_key = %q
@@ -73,7 +76,7 @@ resource "nayatel_router" "test" {
 
 resource "nayatel_instance" "test" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -82,5 +85,5 @@ resource "nayatel_instance" "test" {
 
   depends_on = [nayatel_router.test]
 }
-`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression)
 }

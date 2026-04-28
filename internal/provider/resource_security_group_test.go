@@ -39,15 +39,18 @@ func TestAccSecurityGroupAttachmentResource_basic(t *testing.T) {
 	routerName := testAccName("tf-acc-sg-att-router")
 	instanceName := testAccName("tf-acc-sg-att-inst")
 	securityGroupName := testAccName("tf-acc-sg-att")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID, bandwidth),
+				Config: testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_security_group_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_security_group_attachment.test", "instance_id", "nayatel_instance.test", "id"),
@@ -86,10 +89,10 @@ data "nayatel_security_groups" "all" {
 `, name, description)
 }
 
-func testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageID string, bandwidth int) string {
+func testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 resource "nayatel_ssh_key" "test" {
   name       = %q
   public_key = %q
@@ -106,7 +109,7 @@ resource "nayatel_router" "test" {
 
 resource "nayatel_instance" "test" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -132,5 +135,5 @@ resource "nayatel_security_group_attachment" "test" {
   instance_id         = nayatel_instance.test.id
   security_group_name = nayatel_security_group.test.name
 }
-`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID, securityGroupName)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression, securityGroupName)
 }

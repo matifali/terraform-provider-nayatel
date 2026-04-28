@@ -16,16 +16,19 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 	routerName := testAccName("tf-acc-vol-att-router")
 	instanceName := testAccName("tf-acc-vol-att-inst")
 	volumeName := testAccName("tf-acc-vol-att")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	volumeSize := testAccVolumeSize(t)
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckVolumeAttachments(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckVolumeAttachments(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID, volumeSize, bandwidth),
+				Config: testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageIDExpression, volumeSize, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_volume_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_volume_attachment.test", "volume_id", "nayatel_volume.test", "id"),
@@ -43,10 +46,10 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 	})
 }
 
-func testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageID string, volumeSize int, bandwidth int) string {
+func testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageIDExpression string, volumeSize int, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 resource "nayatel_ssh_key" "test" {
   name       = %q
   public_key = %q
@@ -63,7 +66,7 @@ resource "nayatel_router" "test" {
 
 resource "nayatel_instance" "test" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -82,5 +85,5 @@ resource "nayatel_volume_attachment" "test" {
   volume_id   = nayatel_volume.test.id
   instance_id = nayatel_instance.test.id
 }
-`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID, volumeName, volumeSize)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression, volumeName, volumeSize)
 }

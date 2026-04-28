@@ -17,16 +17,19 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-fip-router")
 	instanceName := testAccName("tf-acc-fip")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// Create and Read testing
 			{
-				Config: testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID, bandwidth),
+				Config: testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip.test", "id"),
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip.test", "ip_address"),
@@ -47,16 +50,19 @@ func TestAccFloatingIPAssociationResource_basic(t *testing.T) {
 	routerName := testAccName("tf-acc-fip-assoc-router")
 	bootstrapName := testAccName("tf-acc-fip-bootstrap")
 	targetName := testAccName("tf-acc-fip-target")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// Create floating IP and then associate with different instance
 			{
-				Config: testAccFloatingIPAssociationResourceConfig_basic(sshKeyName, publicKey, routerName, bootstrapName, targetName, imageID, bandwidth),
+				Config: testAccFloatingIPAssociationResourceConfig_basic(sshKeyName, publicKey, routerName, bootstrapName, targetName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip_association.test", "id"),
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip_association.test", "floating_ip"),
@@ -73,21 +79,24 @@ func TestAccFloatingIPAssociationResource_releaseOnDestroy(t *testing.T) {
 	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-fip-release-router")
 	instanceName := testAccName("tf-acc-fip-release")
-	imageID := testAccImageID()
+	imageIDExpression := testAccImageIDExpression()
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+			testAccPreCheckImageSelection(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageID, bandwidth, true),
+				Config: testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth, true),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("nayatel_floating_ip_association.test", "release_on_destroy", "true"),
 				),
 			},
 			{
-				Config: testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageID, bandwidth, false),
+				Config: testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth, false),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("nayatel_floating_ip_association.test", "release_on_destroy", "false"),
 				),
@@ -103,10 +112,10 @@ func regexPositiveNumber() *regexp.Regexp {
 
 // Test configurations
 
-func testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageID string, bandwidth int) string {
+func testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 # Create SSH key for testing
 resource "nayatel_ssh_key" "test" {
   name       = %q
@@ -125,7 +134,7 @@ resource "nayatel_router" "test" {
 
 resource "nayatel_instance" "test" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -143,13 +152,13 @@ resource "nayatel_floating_ip" "test" {
 data "nayatel_floating_ips" "all" {
   depends_on = [nayatel_floating_ip.test]
 }
-`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression)
 }
 
-func testAccFloatingIPAssociationResourceConfig_basic(sshKeyName, publicKey, routerName, bootstrapName, targetName, imageID string, bandwidth int) string {
+func testAccFloatingIPAssociationResourceConfig_basic(sshKeyName, publicKey, routerName, bootstrapName, targetName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 resource "nayatel_ssh_key" "test" {
   name       = %q
   public_key = %q
@@ -167,7 +176,7 @@ resource "nayatel_router" "test" {
 # First instance to allocate the IP
 resource "nayatel_instance" "bootstrap" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -185,7 +194,7 @@ resource "nayatel_floating_ip" "test" {
 # Second instance to associate the IP with
 resource "nayatel_instance" "target" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -200,13 +209,13 @@ resource "nayatel_floating_ip_association" "test" {
   floating_ip = nayatel_floating_ip.test.ip_address
   instance_id = nayatel_instance.target.id
 }
-`, sshKeyName, publicKey, bandwidth, routerName, bootstrapName, imageID, targetName, imageID)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, bootstrapName, imageIDExpression, targetName, imageIDExpression)
 }
 
-func testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageID string, bandwidth int, release bool) string {
+func testAccFloatingIPAssociationResourceConfig_releaseOnDestroy(sshKeyName, publicKey, routerName, instanceName, imageIDExpression string, bandwidth int, release bool) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
-
+%s
 resource "nayatel_ssh_key" "test" {
   name       = %q
   public_key = %q
@@ -223,7 +232,7 @@ resource "nayatel_router" "test" {
 
 resource "nayatel_instance" "test" {
   name            = %q
-  image_id        = %q
+  image_id        = %s
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -242,5 +251,5 @@ resource "nayatel_floating_ip_association" "test" {
   instance_id        = nayatel_instance.test.id
   release_on_destroy = %t
 }
-`, sshKeyName, publicKey, bandwidth, routerName, instanceName, imageID, release)
+`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression, release)
 }

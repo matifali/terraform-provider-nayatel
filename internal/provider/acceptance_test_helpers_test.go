@@ -20,10 +20,7 @@ import (
 	nayatelclient "github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
-const (
-	testAccDefaultImageID               = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919"
-	testAccDefaultNetworkBandwidthLimit = 1
-)
+const testAccDefaultNetworkBandwidthLimit = 1
 
 var testAccNetworkPreviewCache = struct {
 	sync.Mutex
@@ -47,12 +44,78 @@ func testAccPublicKey(t *testing.T) string {
 	return publicKey
 }
 
-func testAccImageID() string {
+func testAccImageIDExpression() string {
 	if imageID := os.Getenv("NAYATEL_ACC_IMAGE_ID"); imageID != "" {
-		return imageID
+		return fmt.Sprintf("%q", imageID)
 	}
 
-	return testAccDefaultImageID
+	return "data.nayatel_images.available.images[0].id"
+}
+
+func testAccImageDataSourceConfig() string {
+	if os.Getenv("NAYATEL_ACC_IMAGE_ID") != "" {
+		return ""
+	}
+
+	return `
+data "nayatel_images" "available" {}
+`
+}
+
+func testAccPreCheckImageSelection(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv("NAYATEL_ACC_IMAGE_ID") != "" {
+		testAccPreCheck(t)
+		return
+	}
+
+	testAccPreCheckImagesAvailable(t, "image-dependent acceptance test")
+}
+
+func testAccPreCheckImages(t *testing.T) {
+	t.Helper()
+
+	testAccPreCheckImagesAvailable(t, "images data source acceptance test")
+}
+
+func testAccPreCheckImagesAvailable(t *testing.T, description string) {
+	t.Helper()
+
+	testAccPreCheck(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
+	defer cancel()
+
+	c, err := testAccClientFromEnv(ctx)
+	if err != nil {
+		t.Fatalf("failed to create Nayatel client for %s precheck: %s", description, err)
+	}
+
+	images, err := c.Images.List(ctx)
+	if err != nil {
+		if testAccIsRateLimitedError(err) {
+			t.Skipf("Skipping %s: Nayatel API rate limited the images lookup; retry later: %s", description, err)
+		}
+		t.Fatalf("images lookup failed before running %s: %s", description, err)
+	}
+	if len(images) == 0 {
+		t.Skipf("Skipping %s: the live Nayatel account/API returned no images", description)
+	}
+
+	hasImageID := false
+	for _, image := range images {
+		if strings.TrimSpace(image.ID) != "" {
+			hasImageID = true
+			break
+		}
+	}
+	if !hasImageID {
+		t.Skipf("Skipping %s: the live Nayatel account/API returned no images with a non-empty ID", description)
+	}
+	if description == "image-dependent acceptance test" && strings.TrimSpace(images[0].ID) == "" {
+		t.Skipf("Skipping %s: the first live Nayatel image has an empty ID", description)
+	}
 }
 
 func testAccVolumeSize(t *testing.T) int {
