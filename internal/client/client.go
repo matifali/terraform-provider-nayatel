@@ -53,7 +53,8 @@ func getTokenCachePath(username string) (string, error) {
 	}
 
 	cacheDir := filepath.Join(configDir, tokenCacheDir)
-	return filepath.Join(cacheDir, fmt.Sprintf("token_%s.json", username)), nil
+	cacheName := url.PathEscape(username)
+	return filepath.Join(cacheDir, fmt.Sprintf("token_%s.json", cacheName)), nil
 }
 
 // parseJWTExpiry extracts the expiration time from a JWT token without verifying the signature.
@@ -405,7 +406,7 @@ func (c *Client) Request(ctx context.Context, method, endpoint string, body inte
 		return nil, err
 	}
 
-	if statusCode == http.StatusForbidden && isCSRFError(respBody) {
+	if shouldRetryCSRF(statusCode, respBody) {
 		if err := c.ensureCSRFToken(ctx, true); err != nil {
 			return nil, fmt.Errorf("failed to refresh CSRF token: %w", err)
 		}
@@ -469,8 +470,11 @@ func fetchCSRFToken(ctx context.Context, httpClient *http.Client, baseURL string
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("CSRF request failed (status %d): %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if message := apiErrorMessage(body); message != "" {
+			return "", fmt.Errorf("CSRF request failed (status %d): %s", resp.StatusCode, message)
+		}
+		return "", fmt.Errorf("CSRF request failed (status %d)", resp.StatusCode)
 	}
 
 	token := resp.Header.Get("X-CSRF-Token")
@@ -484,15 +488,56 @@ func fetchCSRFToken(ctx context.Context, httpClient *http.Client, baseURL string
 	}
 
 	if token == "" {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if err != nil {
+			return "", fmt.Errorf("failed to read CSRF response body: %w", err)
+		}
+		token = csrfTokenFromJSON(body)
+	}
+
+	if token == "" {
 		return "", fmt.Errorf("no CSRF token in response")
 	}
 
 	return token, nil
 }
 
+func csrfTokenFromJSON(respBody []byte) string {
+	var payload struct {
+		Token     string `json:"token"`
+		CSRFToken string `json:"csrf_token"`
+		CSRFCamel string `json:"csrfToken"`
+	}
+	if err := json.Unmarshal(respBody, &payload); err != nil {
+		return ""
+	}
+
+	switch {
+	case payload.Token != "":
+		return payload.Token
+	case payload.CSRFToken != "":
+		return payload.CSRFToken
+	case payload.CSRFCamel != "":
+		return payload.CSRFCamel
+	default:
+		return ""
+	}
+}
+
+func shouldRetryCSRF(statusCode int, respBody []byte) bool {
+	if statusCode == http.StatusForbidden && isCSRFError(respBody) {
+		return true
+	}
+
+	return statusCode == 419
+}
+
 func isCSRFError(respBody []byte) bool {
 	body := strings.ToLower(string(respBody))
-	return strings.Contains(body, "csrf") || strings.Contains(body, "cross-site request forgery")
+	return strings.Contains(body, "csrf") ||
+		strings.Contains(body, "cross-site request forgery") ||
+		strings.Contains(body, "token mismatch") ||
+		strings.Contains(body, "page expired")
 }
 
 // Get makes a GET request.
@@ -642,6 +687,29 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 	return nil
 }
 
+func apiErrorMessage(respBody []byte) string {
+	var payload struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &payload); err != nil {
+		return ""
+	}
+
+	message := payload.Message
+	if message == "" {
+		message = payload.Error
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ""
+	}
+	if len(message) > 200 {
+		message = message[:200] + "..."
+	}
+	return message
+}
+
 // authenticate performs the Nayatel portal authentication flow.
 func authenticate(ctx context.Context, httpClient *http.Client, baseURL, username, password string) (string, error) {
 	csrfToken, err := fetchCSRFToken(ctx, httpClient, baseURL)
@@ -671,8 +739,11 @@ func authenticate(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("authentication failed (status %d): %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if message := apiErrorMessage(body); message != "" {
+			return "", fmt.Errorf("authentication failed (status %d): %s", resp.StatusCode, message)
+		}
+		return "", fmt.Errorf("authentication failed (status %d)", resp.StatusCode)
 	}
 
 	var authResp struct {

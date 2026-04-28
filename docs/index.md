@@ -16,8 +16,8 @@ The Nayatel provider is a community-maintained, unofficial provider for interact
 
 ### Optional
 
-- `base_url` (String) Nayatel Cloud API base URL. Defaults to `https://cloud.nayatel.com/api`.
-- `password` (String, Sensitive) Nayatel Cloud password. Can also be set via `NAYATEL_PASSWORD` environment variable.
+- `base_url` (String) Nayatel Cloud API base URL. Can also be set via the `NAYATEL_BASE_URL` environment variable. Defaults to `https://cloud.nayatel.com/api`. Only point this at a trusted Nayatel-compatible HTTPS API because credentials and CSRF/session requests are sent there.
+- `password` (String, Sensitive) Nayatel Cloud password for non-interactive CSRF-protected form login. Optional when `token` is set; can also be set via the `NAYATEL_PASSWORD` environment variable.
 - `project_id` (String) Default project ID. Can also be set via `NAYATEL_PROJECT_ID` environment variable.
-- `token` (String, Sensitive) Nayatel Cloud JWT token. Can also be set via `NAYATEL_TOKEN` environment variable. If provided, username/password are not required.
-- `username` (String) Nayatel Cloud username. Can also be set via `NAYATEL_USERNAME` environment variable.
+- `token` (String, Sensitive) Nayatel Cloud JWT token. Can also be set via the `NAYATEL_TOKEN` environment variable. When set, it is used instead of `password`, but `username`/`NAYATEL_USERNAME` is still required.
+- `username` (String) Nayatel Cloud username. Required with either `password` or `token`; can also be set via the `NAYATEL_USERNAME` environment variable.

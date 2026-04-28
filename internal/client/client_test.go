@@ -2,16 +2,33 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func testJWT(t *testing.T, expiresAt time.Time) string {
+	t.Helper()
+
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, err := json.Marshal(struct {
+		Exp int64 `json:"exp"`
+	}{Exp: expiresAt.Unix()})
+	if err != nil {
+		t.Fatalf("failed to marshal JWT payload: %v", err)
+	}
+
+	return fmt.Sprintf("%s.%s.signature", header, base64.RawURLEncoding.EncodeToString(payload))
+}
 
 func TestRequestFetchesAndSendsCSRFSession(t *testing.T) {
 	ctx := context.Background()
@@ -64,6 +81,46 @@ func TestRequestFetchesAndSendsCSRFSession(t *testing.T) {
 		t.Fatalf("NewClient did not install a cookie jar on a custom HTTP client")
 	}
 
+	resp, err := c.Get(ctx, "/resource")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got, want := string(resp), `{"ok":true}`; got != want {
+		t.Fatalf("response = %s, want %s", got, want)
+	}
+	if got := csrfCalls.Load(); got != 1 {
+		t.Fatalf("csrf calls = %d, want 1", got)
+	}
+	if got := apiCalls.Load(); got != 1 {
+		t.Fatalf("api calls = %d, want 1", got)
+	}
+}
+
+func TestRequestReadsCSRFTokenFromJSONBody(t *testing.T) {
+	ctx := context.Background()
+
+	var csrfCalls atomic.Int32
+	var apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			csrfCalls.Add(1)
+			_, _ = w.Write([]byte(`{"csrf_token":"json-csrf"}`))
+		case "/api/resource":
+			apiCalls.Add(1)
+			if got, want := r.Header.Get("X-CSRF-Token"), "json-csrf"; got != want {
+				t.Errorf("X-CSRF-Token = %q, want %q", got, want)
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
 	resp, err := c.Get(ctx, "/resource")
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
@@ -200,6 +257,42 @@ func TestRequestRefreshesCSRFAndRetriesOnce(t *testing.T) {
 	}
 }
 
+func TestShouldRetryCSRFRecognizesExpiryResponses(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "forbidden token mismatch",
+			statusCode: http.StatusForbidden,
+			body:       []byte("Token mismatch"),
+			want:       true,
+		},
+		{
+			name:       "http 419 page expired",
+			statusCode: 419,
+			body:       []byte("Page Expired"),
+			want:       true,
+		},
+		{
+			name:       "ordinary forbidden",
+			statusCode: http.StatusForbidden,
+			body:       []byte("permission denied"),
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRetryCSRF(tt.statusCode, tt.body); got != tt.want {
+				t.Fatalf("shouldRetryCSRF() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRequestDoesNotRetryNonCSRFForbidden(t *testing.T) {
 	ctx := context.Background()
 
@@ -316,5 +409,95 @@ func TestNewClientWithLoginUsesCSRFFormFlow(t *testing.T) {
 	}
 	if got := tokenCalls.Load(); got != 0 {
 		t.Fatalf("legacy token calls = %d, want 0", got)
+	}
+}
+
+func TestNewClientWithLoginUsesValidCachedToken(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	ctx := context.Background()
+
+	cachedToken := testJWT(t, time.Now().Add(time.Hour))
+	if err := saveCachedToken("cache-user", cachedToken); err != nil {
+		t.Fatalf("saveCachedToken returned error: %v", err)
+	}
+
+	var unexpectedCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		unexpectedCalls.Add(1)
+		t.Errorf("unexpected auth request to %s", r.URL.Path)
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	c, err := NewClientWithLogin(ctx, "cache-user", "cache-pass", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	if err != nil {
+		t.Fatalf("NewClientWithLogin returned error: %v", err)
+	}
+	if got := c.Token; got != cachedToken {
+		t.Fatalf("client token = %q, want cached token", got)
+	}
+	if got := unexpectedCalls.Load(); got != 0 {
+		t.Fatalf("unexpected auth calls = %d, want 0", got)
+	}
+}
+
+func TestNewClientWithLoginFallsBackWhenCachedTokenExpired(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	ctx := context.Background()
+
+	if err := saveCachedToken("cache-user", testJWT(t, time.Now().Add(-time.Hour))); err != nil {
+		t.Fatalf("saveCachedToken returned error: %v", err)
+	}
+	freshToken := testJWT(t, time.Now().Add(time.Hour))
+
+	var csrfCalls atomic.Int32
+	var authCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			csrfCalls.Add(1)
+			w.Header().Set("x-csrf-token", "fresh-csrf")
+		case "/api/authenticate":
+			authCalls.Add(1)
+			if got, want := r.Header.Get("X-CSRF-Token"), "fresh-csrf"; got != want {
+				t.Errorf("X-CSRF-Token = %q, want %q", got, want)
+			}
+			_, _ = fmt.Fprintf(w, `{"token":%q}`, freshToken)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c, err := NewClientWithLogin(ctx, "cache-user", "cache-pass", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	if err != nil {
+		t.Fatalf("NewClientWithLogin returned error: %v", err)
+	}
+	if got := c.Token; got != freshToken {
+		t.Fatalf("client token = %q, want fresh token", got)
+	}
+	if got := csrfCalls.Load(); got != 1 {
+		t.Fatalf("csrf calls = %d, want 1", got)
+	}
+	if got := authCalls.Load(); got != 1 {
+		t.Fatalf("auth calls = %d, want 1", got)
+	}
+}
+
+func TestTokenCachePathEscapesUsername(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+
+	cachePath, err := getTokenCachePath(`../team/user@example.com`)
+	if err != nil {
+		t.Fatalf("getTokenCachePath returned error: %v", err)
+	}
+
+	if got, want := filepath.Dir(cachePath), filepath.Join(configDir, tokenCacheDir); got != want {
+		t.Fatalf("cache dir = %q, want %q", got, want)
+	}
+	if got := filepath.Base(cachePath); !strings.Contains(got, "%2F") {
+		t.Fatalf("cache filename = %q, want escaped path separators", got)
 	}
 }

@@ -6,20 +6,19 @@ terraform {
   }
 }
 
-# Configure the provider
-# Option 1: Use environment variables (recommended)
+# Configure the provider with environment variables (recommended):
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_PASSWORD="your-password"
 #
-# Option 2: Use a token
+# Or use token auth; username is still required:
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_TOKEN="your-jwt-token"
 #
-# Option 3: Configure in provider block
+# Provider block arguments are also supported, but avoid storing secrets in code.
 provider "nayatel" {
   # username = "your-username"
   # password = "your-password"
-  # OR
+  # OR, with username still set:
   # token = "your-jwt-token"
 }
 

@@ -48,16 +48,16 @@ func (p *NayatelProvider) Schema(ctx context.Context, req provider.SchemaRequest
 		MarkdownDescription: "The Nayatel provider is a community-maintained, unofficial provider for interacting with Nayatel Cloud resources.",
 		Attributes: map[string]schema.Attribute{
 			"username": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud username. Can also be set via `NAYATEL_USERNAME` environment variable.",
+				MarkdownDescription: "Nayatel Cloud username. Required with either `password` or `token`; can also be set via the `NAYATEL_USERNAME` environment variable.",
 				Optional:            true,
 			},
 			"password": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud password. Can also be set via `NAYATEL_PASSWORD` environment variable.",
+				MarkdownDescription: "Nayatel Cloud password for non-interactive CSRF-protected form login. Optional when `token` is set; can also be set via the `NAYATEL_PASSWORD` environment variable.",
 				Optional:            true,
 				Sensitive:           true,
 			},
 			"token": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud JWT token. Can also be set via `NAYATEL_TOKEN` environment variable. If provided, username/password are not required.",
+				MarkdownDescription: "Nayatel Cloud JWT token. Can also be set via the `NAYATEL_TOKEN` environment variable. When set, it is used instead of `password`, but `username`/`NAYATEL_USERNAME` is still required.",
 				Optional:            true,
 				Sensitive:           true,
 			},
@@ -66,11 +66,49 @@ func (p *NayatelProvider) Schema(ctx context.Context, req provider.SchemaRequest
 				Optional:            true,
 			},
 			"base_url": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud API base URL. Defaults to `https://cloud.nayatel.com/api`.",
+				MarkdownDescription: "Nayatel Cloud API base URL. Can also be set via the `NAYATEL_BASE_URL` environment variable. Defaults to `https://cloud.nayatel.com/api`. Only point this at a trusted Nayatel-compatible HTTPS API because credentials and CSRF/session requests are sent there.",
 				Optional:            true,
 			},
 		},
 	}
+}
+
+type authValidationDiagnostic struct {
+	attribute path.Path
+	summary   string
+	detail    string
+}
+
+func validateAuthenticationConfig(username, password, token string) *authValidationDiagnostic {
+	missingCredentialsDetail := "The provider requires `username` plus either `token` or `password`. " +
+		"Set the credentials in the provider configuration or use environment variables " +
+		"(`NAYATEL_USERNAME` with `NAYATEL_TOKEN` or `NAYATEL_PASSWORD`)."
+
+	if username == "" {
+		if token != "" {
+			return &authValidationDiagnostic{
+				attribute: path.Root("username"),
+				summary:   "Missing Username",
+				detail:    "Username is required even when using a token. Set the username in the provider configuration or use the `NAYATEL_USERNAME` environment variable.",
+			}
+		}
+
+		return &authValidationDiagnostic{
+			attribute: path.Root("username"),
+			summary:   "Missing Nayatel API Credentials",
+			detail:    missingCredentialsDetail,
+		}
+	}
+
+	if token == "" && password == "" {
+		return &authValidationDiagnostic{
+			attribute: path.Root("password"),
+			summary:   "Missing Nayatel API Credentials",
+			detail:    missingCredentialsDetail,
+		}
+	}
+
+	return nil
 }
 
 func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
@@ -90,24 +128,11 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 	baseURL := getConfigOrEnv(config.BaseURL, "NAYATEL_BASE_URL")
 
 	// Validate configuration
-	if token == "" && (username == "" || password == "") {
+	if authDiag := validateAuthenticationConfig(username, password, token); authDiag != nil {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("username"),
-			"Missing Nayatel API Credentials",
-			"The provider requires either a token or username/password combination. "+
-				"Set the credentials in the provider configuration or use environment variables "+
-				"(NAYATEL_TOKEN or NAYATEL_USERNAME and NAYATEL_PASSWORD).",
-		)
-		return
-	}
-
-	if username == "" && token != "" {
-		// Try to extract username from token (JWT payload contains username)
-		resp.Diagnostics.AddAttributeError(
-			path.Root("username"),
-			"Missing Username",
-			"Username is required even when using a token. "+
-				"Set the username in the provider configuration or use NAYATEL_USERNAME environment variable.",
+			authDiag.attribute,
+			authDiag.summary,
+			authDiag.detail,
 		)
 		return
 	}

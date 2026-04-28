@@ -14,11 +14,16 @@ A complete example showing how to:
 
 ## Usage
 
-1. Set your credentials:
+1. Set credentials with one of the supported non-interactive modes (environment variables are recommended):
 
 ```shell
+# Username/password form login
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_PASSWORD="your-password"
+
+# OR username/token auth (username is still required)
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_TOKEN="your-jwt-token"
 ```
 
 2. Initialize Terraform:
