@@ -44,6 +44,7 @@ func TestAccSecurityGroupAttachmentResource_basic(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
+			testAccPreCheckRouterTests(t)
 			testAccPreCheckNetworkBandwidth(t, bandwidth)
 			testAccPreCheckImageSelection(t)
 		},

@@ -22,6 +22,7 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
+			testAccPreCheckRouterTests(t)
 			testAccPreCheckNetworkBandwidth(t, bandwidth)
 			testAccPreCheckImageSelection(t)
 		},
@@ -55,6 +56,7 @@ func TestAccFloatingIPAssociationResource_basic(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
+			testAccPreCheckRouterTests(t)
 			testAccPreCheckNetworkBandwidth(t, bandwidth)
 			testAccPreCheckImageSelection(t)
 		},
@@ -84,6 +86,7 @@ func TestAccFloatingIPAssociationResource_releaseOnDestroy(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
+			testAccPreCheckRouterTests(t)
 			testAccPreCheckNetworkBandwidth(t, bandwidth)
 			testAccPreCheckImageSelection(t)
 		},

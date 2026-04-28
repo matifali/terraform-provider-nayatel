@@ -20,6 +20,8 @@ import (
 	nayatelclient "github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
+const testAccRunRouterTestsEnvVar = "NAYATEL_ACC_RUN_ROUTER_TESTS"
+
 const testAccDefaultNetworkBandwidthLimit = 1
 
 var testAccNetworkPreviewCache = struct {
@@ -118,6 +120,16 @@ func testAccPreCheckImagesAvailable(t *testing.T, description string) {
 	}
 }
 
+func testAccPreCheckRouterTests(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv(testAccRunRouterTestsEnvVar) != "1" {
+		t.Skipf("Set %s=1 to run router-dependent acceptance tests; Nayatel currently exposes no working router-interface detach endpoint, so router/interface stacks can fail cleanup and leak resources", testAccRunRouterTestsEnvVar)
+	}
+
+	testAccPreCheck(t)
+}
+
 func testAccVolumeSize(t *testing.T) int {
 	t.Helper()
 
@@ -205,9 +217,10 @@ func testAccPreCheckFlavors(t *testing.T) {
 func testAccPreCheckVolumeAttachments(t *testing.T, bandwidth int) {
 	t.Helper()
 
+	testAccPreCheckRouterTests(t)
 	testAccPreCheckVolumes(t)
 	if os.Getenv("NAYATEL_ACC_RUN_VOLUME_ATTACHMENT_TESTS") != "1" {
-		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_ATTACHMENT_TESTS=1 in addition to NAYATEL_ACC_RUN_VOLUME_TESTS=1 to run volume attachment acceptance tests; they create a network/router/instance/volume stack and may incur charges")
+		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_ATTACHMENT_TESTS=1 in addition to NAYATEL_ACC_RUN_VOLUME_TESTS=1 and NAYATEL_ACC_RUN_ROUTER_TESTS=1 to run volume attachment acceptance tests; they create a network/router/instance/volume stack and may incur charges")
 	}
 	testAccPreCheckNetworkBandwidth(t, bandwidth)
 }

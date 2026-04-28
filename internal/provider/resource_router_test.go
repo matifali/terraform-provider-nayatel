@@ -81,7 +81,10 @@ func TestAccRouterResource_basic(t *testing.T) {
 	bandwidth := testAccNetworkBandwidthLimit(t)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheckNetworkBandwidth(t, bandwidth) },
+		PreCheck: func() {
+			testAccPreCheckRouterTests(t)
+			testAccPreCheckNetworkBandwidth(t, bandwidth)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
