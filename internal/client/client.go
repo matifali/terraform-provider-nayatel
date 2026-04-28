@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -197,6 +199,12 @@ type Client struct {
 	// HTTPClient is the underlying HTTP client.
 	HTTPClient *http.Client
 
+	// csrfMu protects csrfToken across Terraform's parallel operations.
+	csrfMu sync.Mutex
+
+	// csrfToken is the cached CSRF token for the current HTTP session.
+	csrfToken string
+
 	// Instances provides instance operations.
 	Instances *InstanceService
 
@@ -259,6 +267,25 @@ func WithProjectID(projectID string) ClientOption {
 	}
 }
 
+// ensureCookieJar installs a cookie jar on the HTTP client if one is not already set.
+func ensureCookieJar(httpClient *http.Client) error {
+	if httpClient == nil {
+		return fmt.Errorf("http client is nil")
+	}
+
+	if httpClient.Jar != nil {
+		return nil
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create cookie jar: %w", err)
+	}
+
+	httpClient.Jar = jar
+	return nil
+}
+
 // NewClient creates a new Nayatel Cloud API client.
 func NewClient(username, token string, opts ...ClientOption) *Client {
 	c := &Client{
@@ -274,6 +301,11 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
+
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{Timeout: DefaultTimeout}
+	}
+	_ = ensureCookieJar(c.HTTPClient)
 
 	// Initialize services
 	c.Instances = &InstanceService{client: c}
@@ -306,21 +338,10 @@ func NewClientWithLogin(ctx context.Context, username, password string, opts ...
 		return NewClient(username, cachedToken, opts...), nil
 	}
 
-	// No valid cached token, need to authenticate
-	tempClient := &http.Client{Timeout: DefaultTimeout}
-	baseURL := DefaultBaseURL
-
-	// Check if custom base URL is provided
-	for _, opt := range opts {
-		c := &Client{BaseURL: DefaultBaseURL}
-		opt(c)
-		if c.BaseURL != DefaultBaseURL {
-			baseURL = c.BaseURL
-		}
-	}
-
-	// Authenticate
-	token, err := authenticate(ctx, tempClient, baseURL, username, password)
+	// No valid cached token, need to authenticate with the same HTTP client/jar
+	// that will be used for subsequent API requests.
+	c := NewClient(username, "", opts...)
+	token, err := authenticate(ctx, c.HTTPClient, c.BaseURL, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -328,50 +349,150 @@ func NewClientWithLogin(ctx context.Context, username, password string, opts ...
 	// Cache the new token (ignore errors - caching is best effort)
 	_ = saveCachedToken(username, token)
 
-	return NewClient(username, token, opts...), nil
+	c.Token = token
+	return c, nil
 }
 
 // Request makes an HTTP request to the API.
 func (c *Client) Request(ctx context.Context, method, endpoint string, body interface{}) ([]byte, error) {
 	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
 
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(jsonBody)
+		bodyBytes = jsonBody
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err := c.ensureCSRFToken(ctx, false); err != nil {
+		return nil, fmt.Errorf("failed to fetch CSRF token: %w", err)
+	}
+
+	doRequest := func() ([]byte, int, error) {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-CSRF-Token", c.currentCSRFToken())
+
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		return respBody, resp.StatusCode, nil
+	}
+
+	respBody, statusCode, err := doRequest()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	if statusCode == http.StatusForbidden && isCSRFError(respBody) {
+		if err := c.ensureCSRFToken(ctx, true); err != nil {
+			return nil, fmt.Errorf("failed to refresh CSRF token: %w", err)
+		}
 
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		respBody, statusCode, err = doRequest()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if statusCode < 200 || statusCode >= 300 {
 		return nil, &APIError{
-			StatusCode: resp.StatusCode,
+			StatusCode: statusCode,
 			Message:    string(respBody),
 		}
 	}
 
 	return respBody, nil
+}
+
+func (c *Client) currentCSRFToken() string {
+	c.csrfMu.Lock()
+	defer c.csrfMu.Unlock()
+
+	return c.csrfToken
+}
+
+func (c *Client) ensureCSRFToken(ctx context.Context, force bool) error {
+	c.csrfMu.Lock()
+	defer c.csrfMu.Unlock()
+
+	if !force && c.csrfToken != "" {
+		return nil
+	}
+
+	token, err := fetchCSRFToken(ctx, c.HTTPClient, c.BaseURL)
+	if err != nil {
+		return err
+	}
+
+	c.csrfToken = token
+	return nil
+}
+
+func fetchCSRFToken(ctx context.Context, httpClient *http.Client, baseURL string) (string, error) {
+	if err := ensureCookieJar(httpClient); err != nil {
+		return "", err
+	}
+
+	csrfURL := fmt.Sprintf("%s/csrf-token", strings.TrimRight(baseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, csrfURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create CSRF request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("CSRF request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("CSRF request failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	token := resp.Header.Get("X-CSRF-Token")
+	if token == "" {
+		for _, cookie := range resp.Cookies() {
+			if cookie.Name == "csrf-token" {
+				token = cookie.Value
+				break
+			}
+		}
+	}
+
+	if token == "" {
+		return "", fmt.Errorf("no CSRF token in response")
+	}
+
+	return token, nil
+}
+
+func isCSRFError(respBody []byte) bool {
+	body := strings.ToLower(string(respBody))
+	return strings.Contains(body, "csrf") || strings.Contains(body, "cross-site request forgery")
 }
 
 // Get makes a GET request.
@@ -521,23 +642,14 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 	return nil
 }
 
-// Hardcoded credentials for obtaining intermediate token (from Nayatel web portal JS).
-// These are static application credentials, not user credentials.
-const (
-	tokenUsername = "lAegpifOLWwjiGkaOXPX5g=="
-	tokenPassword = "c8ckteW7FtciCaVCAo7X4Q=="
-)
-
-// authenticate performs the 2-step authentication flow.
+// authenticate performs the Nayatel portal authentication flow.
 func authenticate(ctx context.Context, httpClient *http.Client, baseURL, username, password string) (string, error) {
-	// Step 1: Get intermediate token from /api/token
-	intermediateToken, err := getIntermediateToken(ctx, httpClient, baseURL)
+	csrfToken, err := fetchCSRFToken(ctx, httpClient, baseURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to get intermediate token: %w", err)
+		return "", fmt.Errorf("failed to get CSRF token: %w", err)
 	}
 
-	// Step 2: Authenticate to get JWT using intermediate token
-	authURL := fmt.Sprintf("%s/authenticate", baseURL)
+	authURL := fmt.Sprintf("%s/authenticate", strings.TrimRight(baseURL, "/"))
 
 	data := url.Values{}
 	data.Set("userid", username)
@@ -549,7 +661,8 @@ func authenticate(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", fmt.Sprintf("Token %s", intermediateToken))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfToken)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -563,75 +676,20 @@ func authenticate(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	}
 
 	var authResp struct {
-		Status  bool   `json:"status"`
 		Message string `json:"message"`
 		Token   string `json:"token"`
-		Data    struct {
-			UserID string `json:"USERID"`
-		} `json:"data"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
 		return "", fmt.Errorf("failed to decode auth response: %w", err)
 	}
 
-	if !authResp.Status {
-		return "", fmt.Errorf("authentication failed: %s", authResp.Message)
-	}
-
 	if authResp.Token == "" {
+		if authResp.Message != "" {
+			return "", fmt.Errorf("authentication failed: %s", authResp.Message)
+		}
 		return "", fmt.Errorf("no token in auth response")
 	}
 
 	return authResp.Token, nil
-}
-
-// getIntermediateToken fetches an intermediate token from /api/token.
-// This token is required for the Authorization header in the authenticate request.
-func getIntermediateToken(ctx context.Context, httpClient *http.Client, baseURL string) (string, error) {
-	tokenURL := fmt.Sprintf("%s/token", baseURL)
-
-	// Request body with hardcoded credentials
-	reqBody := map[string]string{
-		"username": tokenUsername,
-		"password": tokenPassword,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal token request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, bytes.NewReader(jsonBody))
-	if err != nil {
-		return "", fmt.Errorf("failed to create token request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		Token string `json:"token"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return "", fmt.Errorf("failed to decode token response: %w", err)
-	}
-
-	if tokenResp.Token == "" {
-		return "", fmt.Errorf("no token in response")
-	}
-
-	return tokenResp.Token, nil
 }
