@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -68,7 +70,11 @@ func TestSafetyChecks(t *testing.T) {
 	netReq := &NetworkCreateRequest{BandwidthLimit: 1}
 	netPreview, err := c.Networks.Preview(ctx, netReq)
 	if err != nil {
-		t.Errorf("Network Preview failed: %s", err)
+		if isNetworkBandwidthAlreadyExistsError(err) {
+			t.Logf("Network Preview skipped because this account already has a network with the requested bandwidth: %s", err)
+		} else {
+			t.Errorf("Network Preview failed: %s", err)
+		}
 	} else {
 		cost := ExtractCostFromPreview(netPreview)
 		fmt.Printf("   Network cost (prorated): Rs. %.2f\n", cost)
@@ -109,4 +115,15 @@ func TestSafetyChecks(t *testing.T) {
 	fmt.Println("\n=== Safety Check Summary ===")
 	fmt.Println("If all above calls succeeded, the safety checks will work.")
 	fmt.Println("NO resources were created, NO charges were made.")
+}
+
+func isNetworkBandwidthAlreadyExistsError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		return false
+	}
+
+	message := strings.ToLower(apiErr.Message)
+	return strings.Contains(message, "network with the bandwidth") &&
+		strings.Contains(message, "already exists")
 }
