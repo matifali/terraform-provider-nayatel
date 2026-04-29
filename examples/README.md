@@ -4,13 +4,13 @@ This directory contains example Terraform configurations for the Nayatel provide
 
 ## main.tf
 
-A complete example showing how to:
+A runnable example showing how to:
 - Configure the Nayatel provider
 - Query available images, SSH keys, and security groups
-- Create a network and router
-- Deploy an instance
-- Attach a floating IP
-- Attach a security group
+- Create an SSH key, network, and security group
+- Optionally deploy router-dependent compute resources (router, instance, floating IP, and security group attachment)
+
+The compute section is disabled by default because it creates billable resources and Nayatel currently does not expose a verified router-interface detach endpoint. Enable it only when you understand the cleanup implications.
 
 ## Usage
 
@@ -43,3 +43,11 @@ terraform plan
 ```shell
 terraform apply
 ```
+
+To run the optional compute example, pass:
+
+```shell
+terraform apply -var='enable_compute_example=true'
+```
+
+This creates billable router, instance, and floating IP resources. Be prepared to verify cleanup in the Nayatel portal if router deletion is blocked by an active interface.

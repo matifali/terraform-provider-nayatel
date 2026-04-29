@@ -22,7 +22,37 @@ provider "nayatel" {
   # token = "your-jwt-token"
 }
 
+# Set this to true to create compute resources (router, instance, floating IP,
+# and security group attachment). It defaults to false so `terraform apply` and
+# `terraform destroy` remain safe for a quick smoke test.
+#
+# Nayatel currently exposes router interface attachment but no verified router
+# interface detach endpoint. Until that API is available, router-dependent
+# examples may require portal/API cleanup if destroy cannot remove the router.
+variable "enable_compute_example" {
+  type        = bool
+  default     = false
+  description = "Create router, instance, floating IP, and security group attachment example resources. These are billable and may require manual router cleanup."
+}
+
+variable "network_bandwidth_limit" {
+  type        = number
+  default     = 1
+  description = "Nayatel network bandwidth tier to request for the example network."
+}
+
+variable "image_id" {
+  type        = string
+  default     = ""
+  description = "Optional image ID for the compute example. If empty, the first image from data.nayatel_images.available is used."
+}
+
+locals {
+  example_image_id = var.image_id != "" ? var.image_id : try(data.nayatel_images.available.images[0].id, "")
+}
+
 # Get available images
+# Use this list to choose a stable image ID for production configurations.
 data "nayatel_images" "available" {}
 
 # Get available SSH keys
@@ -49,13 +79,7 @@ resource "nayatel_ssh_key" "terraform" {
 
 # Create a network
 resource "nayatel_network" "main" {
-  bandwidth_limit = 1
-}
-
-# Create a router
-resource "nayatel_router" "main" {
-  name      = "terraform-router"
-  subnet_id = nayatel_network.main.subnet_id
+  bandwidth_limit = var.network_bandwidth_limit
 }
 
 # Create a security group with SSH access
@@ -71,10 +95,29 @@ resource "nayatel_security_group" "ssh" {
   }
 }
 
+# =============================================================================
+# Optional compute example
+# =============================================================================
+# Enable with:
+#   terraform apply -var='enable_compute_example=true'
+#
+# This creates billable router, instance, floating IP, and attachment resources.
+# If no image_id is provided, it uses the first image returned by the API.
+
+# Create a router
+resource "nayatel_router" "main" {
+  count = var.enable_compute_example ? 1 : 0
+
+  name      = "terraform-router"
+  subnet_id = nayatel_network.main.subnet_id
+}
+
 # Create an instance
 resource "nayatel_instance" "web" {
+  count = var.enable_compute_example ? 1 : 0
+
   name            = "terraform-test"
-  image_id        = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919" # Ubuntu 24.04
+  image_id        = local.example_image_id
   cpu             = 2
   ram             = 2
   disk            = 20
@@ -82,14 +125,16 @@ resource "nayatel_instance" "web" {
   ssh_fingerprint = nayatel_ssh_key.terraform.fingerprint
 
   # Explicit dependency ensures:
-  # - Create: SG exists before instance (for attachment)
-  # - Destroy: Instance deleted before SG (API requirement)
+  # - Create: router and SG exist before the instance
+  # - Destroy: instance is deleted before SG (API requirement)
   depends_on = [nayatel_router.main, nayatel_security_group.ssh]
 }
 
 # Attach security group to instance
 resource "nayatel_security_group_attachment" "ssh" {
-  instance_id         = nayatel_instance.web.id
+  count = var.enable_compute_example ? 1 : 0
+
+  instance_id         = nayatel_instance.web[0].id
   security_group_name = nayatel_security_group.ssh.name
 }
 
@@ -98,19 +143,21 @@ resource "nayatel_security_group_attachment" "ssh" {
 # =============================================================================
 #
 # Two resources for full control:
-#   nayatel_floating_ip            - Allocates an IP (like aws_eip)
+#   nayatel_floating_ip             - Allocates an IP (like aws_eip)
 #   nayatel_floating_ip_association - Attaches IP to instance (like aws_eip_association)
 #
-# Note: You need floating IP quota via Nayatel Cloud portal first
+# Note: You need floating IP quota via Nayatel Cloud portal first.
 
 # Allocate a floating IP (attached to instance to discover the IP)
 resource "nayatel_floating_ip" "web" {
-  instance_id = nayatel_instance.web.id # Required to discover the allocated IP
+  count = var.enable_compute_example ? 1 : 0
+
+  instance_id = nayatel_instance.web[0].id # Required to discover the allocated IP
 }
 
 # Output the allocated IP
 output "floating_ip" {
-  value = nayatel_floating_ip.web.ip_address
+  value = try(nayatel_floating_ip.web[0].ip_address, null)
 }
 
 # =============================================================================
@@ -141,11 +188,11 @@ output "floating_ip" {
 
 # Output instance details
 output "instance_id" {
-  value = nayatel_instance.web.id
+  value = try(nayatel_instance.web[0].id, null)
 }
 
 output "instance_private_ip" {
-  value = nayatel_instance.web.private_ip
+  value = try(nayatel_instance.web[0].private_ip, null)
 }
 
 output "security_group_id" {
@@ -153,7 +200,7 @@ output "security_group_id" {
 }
 
 output "public_ip" {
-  value = nayatel_floating_ip.web.ip_address
+  value = try(nayatel_floating_ip.web[0].ip_address, null)
 }
 
 # =============================================================================
@@ -162,13 +209,13 @@ output "public_ip" {
 output "costs" {
   description = "Estimated monthly costs in Rs. for the current billing cycle"
   value = {
-    instance    = nayatel_instance.web.monthly_cost
-    floating_ip = nayatel_floating_ip.web.monthly_cost
+    instance    = try(nayatel_instance.web[0].monthly_cost, 0)
+    floating_ip = try(nayatel_floating_ip.web[0].monthly_cost, 0)
     network     = nayatel_network.main.monthly_cost
     # Total estimated monthly cost
     total = sum([
-      coalesce(nayatel_instance.web.monthly_cost, 0),
-      coalesce(nayatel_floating_ip.web.monthly_cost, 0),
+      try(coalesce(nayatel_instance.web[0].monthly_cost, 0), 0),
+      try(coalesce(nayatel_floating_ip.web[0].monthly_cost, 0), 0),
       coalesce(nayatel_network.main.monthly_cost, 0),
     ])
   }
