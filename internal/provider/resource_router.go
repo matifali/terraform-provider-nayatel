@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -33,10 +34,11 @@ type RouterResource struct {
 }
 
 type RouterResourceModel struct {
-	ID       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	SubnetID types.String `tfsdk:"subnet_id"`
-	Status   types.String `tfsdk:"status"`
+	ID                          types.String `tfsdk:"id"`
+	Name                        types.String `tfsdk:"name"`
+	SubnetID                    types.String `tfsdk:"subnet_id"`
+	ForceDeleteNetworkOnDestroy types.Bool   `tfsdk:"force_delete_network_on_destroy"`
+	Status                      types.String `tfsdk:"status"`
 }
 
 func (r *RouterResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -69,6 +71,12 @@ The router is automatically connected to the Provider Network (external network)
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+			"force_delete_network_on_destroy": schema.BoolAttribute{
+				MarkdownDescription: "When true, if Nayatel still reports an active router interface after interface-removal retries, delete the network that owns `subnet_id` before retrying router deletion. Only enable this for disposable networks exclusively managed by this Terraform configuration.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
 			},
 			"status": schema.StringAttribute{
 				Computed:            true,
@@ -205,19 +213,28 @@ func (r *RouterResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		subnetID = data.SubnetID.ValueString()
 	}
 
-	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID})
+	forceDeleteNetworkOnDestroy := false
+	if !data.ForceDeleteNetworkOnDestroy.IsNull() && !data.ForceDeleteNetworkOnDestroy.IsUnknown() {
+		forceDeleteNetworkOnDestroy = data.ForceDeleteNetworkOnDestroy.ValueBool()
+	}
 
-	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID, subnetID); err != nil && !client.IsNotFound(err) {
+	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID, "force_delete_network_on_destroy": forceDeleteNetworkOnDestroy})
+
+	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete router: %s", err))
 		return
 	}
 }
 
-func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID, subnetID string) error {
-	return r.deleteRouterWithInterfaceRetryBackoffs(ctx, routerID, subnetID, []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second})
+func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID, subnetID string, forceDeleteNetworkOnDestroy bool) error {
+	return r.deleteRouterWithInterfaceRetryBackoffs(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy, []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second})
 }
 
-func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffs(ctx context.Context, routerID, subnetID string, backoffs []time.Duration) error {
+func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffs(ctx context.Context, routerID, subnetID string, forceDeleteNetworkOnDestroy bool, backoffs []time.Duration) error {
+	return r.deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy, backoffs, []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second})
+}
+
+func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks(ctx context.Context, routerID, subnetID string, forceDeleteNetworkOnDestroy bool, backoffs, networkDeleteBackoffs []time.Duration) error {
 	if subnetID == "" {
 		_, err := r.client.Routers.Delete(ctx, routerID)
 		return err
@@ -259,10 +276,69 @@ func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffs(ctx context.Cont
 		tflog.Debug(ctx, "Retrying router interface detach and deletion after active-interface error", map[string]any{"id": routerID, "subnet_id": subnetID, "attempt": attempt + 1, "error": deleteErr.Error()})
 	}
 
+	if lastDeleteErr != nil && routerDeleteErrorMentionsActiveInterface(lastDeleteErr) {
+		if !forceDeleteNetworkOnDestroy {
+			return fmt.Errorf("router %s still has an active interface for subnet %s after interface-removal retries; set force_delete_network_on_destroy = true only when the subnet network is disposable and exclusively managed by this Terraform configuration: %w", routerID, subnetID, lastDeleteErr)
+		}
+		if err := r.deleteRouterSubnetNetworkFallback(ctx, routerID, subnetID, networkDeleteBackoffs); err == nil || client.IsNotFound(err) {
+			return err
+		} else if lastDetachErr != nil {
+			return fmt.Errorf("unable to remove router interface before deleting router: %v; network cleanup fallback also failed: %w", lastDetachErr, err)
+		} else {
+			return err
+		}
+	}
+
 	if lastDetachErr != nil {
 		return fmt.Errorf("unable to remove router interface before deleting router: %v; unable to delete router after retries: %w", lastDetachErr, lastDeleteErr)
 	}
 	return lastDeleteErr
+}
+
+func (r *RouterResource) deleteRouterSubnetNetworkFallback(ctx context.Context, routerID, subnetID string, backoffs []time.Duration) error {
+	network, err := r.client.Networks.FindBySubnetID(ctx, subnetID)
+	if err != nil {
+		return fmt.Errorf("unable to find network for subnet %s while deleting router %s: %w", subnetID, routerID, err)
+	}
+	if network == nil {
+		return fmt.Errorf("router %s still reports an active interface for subnet %s, but no matching network was found", routerID, subnetID)
+	}
+
+	tflog.Warn(ctx, "Router interface detach did not clear active interface; deleting subnet network before retrying router deletion", map[string]any{
+		"router_id":  routerID,
+		"subnet_id":  subnetID,
+		"network_id": network.ID,
+	})
+
+	_, err = r.client.Networks.Delete(ctx, network.ID)
+	if err != nil && !client.IsNotFound(err) {
+		return fmt.Errorf("unable to delete network %s for router interface cleanup: %w", network.ID, err)
+	}
+
+	var lastErr error
+	for attempt, backoff := range backoffs {
+		if backoff > 0 {
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		_, err := r.client.Routers.Delete(ctx, routerID)
+		if err == nil || client.IsNotFound(err) {
+			return err
+		}
+
+		lastErr = err
+		if !routerDeleteErrorMentionsActiveInterface(err) {
+			return err
+		}
+
+		tflog.Debug(ctx, "Retrying router deletion after network cleanup fallback", map[string]any{"id": routerID, "subnet_id": subnetID, "network_id": network.ID, "attempt": attempt + 1, "error": err.Error()})
+	}
+
+	return lastErr
 }
 
 func routerDeleteErrorMentionsActiveInterface(err error) bool {

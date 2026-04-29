@@ -11,19 +11,26 @@ import (
 	"testing"
 )
 
-func TestRouterRemoveInterfaceUsesDeleteEndpointAndBody(t *testing.T) {
+func TestRouterRemoveInterfaceUsesDeleteEndpointAndPostRemoveEndpoint(t *testing.T) {
 	ctx := context.Background()
 
-	removeCalled := false
+	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/csrf-token":
 			w.Header().Set("X-CSRF-Token", "csrf-test")
 			_, _ = w.Write([]byte(`{"token":"csrf-test"}`))
 		case "/api/iaas/router/router-123/interface":
-			removeCalled = true
+			calls = append(calls, r.Method+" "+r.URL.Path)
 			if r.Method != http.MethodDelete {
 				t.Errorf("method = %s, want %s", r.Method, http.MethodDelete)
+			}
+			assertRouterInterfacePayload(t, r)
+			_, _ = w.Write([]byte(`{"status":true}`))
+		case "/api/iaas/router/router-123/interface/remove":
+			calls = append(calls, r.Method+" "+r.URL.Path)
+			if r.Method != http.MethodPost {
+				t.Errorf("method = %s, want %s", r.Method, http.MethodPost)
 			}
 			assertRouterInterfacePayload(t, r)
 			_, _ = w.Write([]byte(`{"status":true}`))
@@ -38,8 +45,18 @@ func TestRouterRemoveInterfaceUsesDeleteEndpointAndBody(t *testing.T) {
 	if _, err := c.Routers.RemoveInterface(ctx, "router-123", "subnet-abc"); err != nil {
 		t.Fatalf("RemoveInterface returned error: %v", err)
 	}
-	if !removeCalled {
-		t.Fatalf("DELETE /api/iaas/router/router-123/interface was not called")
+
+	wantCalls := []string{
+		"DELETE /api/iaas/router/router-123/interface",
+		"POST /api/iaas/router/router-123/interface/remove",
+	}
+	if len(calls) != len(wantCalls) {
+		t.Fatalf("calls = %v, want %v", calls, wantCalls)
+	}
+	for i := range wantCalls {
+		if calls[i] != wantCalls[i] {
+			t.Fatalf("calls = %v, want %v", calls, wantCalls)
+		}
 	}
 }
 

@@ -82,29 +82,37 @@ func (s *RouterService) RemoveInterface(ctx context.Context, routerID, subnetID 
 	deleteEndpoint := fmt.Sprintf("/iaas/router/%s/interface", routerID)
 	postRemoveEndpoint := fmt.Sprintf("/iaas/router/%s/interface/remove", routerID)
 
-	resp, err := s.client.Delete(ctx, deleteEndpoint, payload)
-	if err == nil {
-		apiResp, appErr := decodeRouterInterfaceResponse(resp, "DELETE", deleteEndpoint)
-		if appErr == nil {
+	var deleteResp *APIResponse
+	resp, deleteErr := s.client.Delete(ctx, deleteEndpoint, payload)
+	if deleteErr == nil {
+		var appErr error
+		deleteResp, appErr = decodeRouterInterfaceResponse(resp, "DELETE", deleteEndpoint)
+		if appErr != nil {
+			deleteErr = appErr
+		}
+	} else if !shouldFallbackRouterInterfaceRemove(deleteErr) {
+		return nil, deleteErr
+	}
+
+	// The live Nayatel API has returned a successful response from the DELETE
+	// endpoint while the router interface remained attached. Always also try the
+	// documented/observed POST remove endpoint so the link is actually removed
+	// before router deletion. If DELETE succeeded and POST is unavailable, keep
+	// the DELETE success for backwards compatibility.
+	resp, postErr := s.client.Post(ctx, postRemoveEndpoint, payload)
+	if postErr == nil {
+		apiResp, err := decodeRouterInterfaceResponse(resp, "POST", postRemoveEndpoint)
+		if err == nil {
 			return apiResp, nil
 		}
-		err = appErr
-	} else if !shouldFallbackRouterInterfaceRemove(err) {
-		return nil, err
+		postErr = err
 	}
 
-	primaryErr := err
-	resp, err = s.client.Post(ctx, postRemoveEndpoint, payload)
-	if err != nil {
-		return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, primaryErr, err)
+	if deleteErr == nil && deleteResp != nil {
+		return deleteResp, nil
 	}
 
-	apiResp, err := decodeRouterInterfaceResponse(resp, "POST", postRemoveEndpoint)
-	if err != nil {
-		return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, primaryErr, err)
-	}
-
-	return apiResp, nil
+	return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, deleteErr, postErr)
 }
 
 func shouldFallbackRouterInterfaceRemove(err error) bool {

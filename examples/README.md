@@ -8,9 +8,11 @@ A runnable example showing how to:
 - Configure the Nayatel provider
 - Query available images, SSH keys, and security groups
 - Create an SSH key, network, and security group
-- Optionally deploy router-dependent compute resources (router, instance, floating IP, and security group attachment)
+- Deploy router-dependent compute resources by default (router, instance, floating IP, and security group attachment)
+- Open SSH, HTTPS, and ICMP ping access on the example security group
+- Bootstrap nginx with a self-signed TLS certificate so port 443 is immediately usable
 
-The compute section is disabled by default because it creates billable resources and Nayatel currently does not expose a verified router-interface detach endpoint. Enable it only when you understand the cleanup implications.
+The compute section is enabled by default and creates billable resources. The example explicitly sets `force_delete_network_on_destroy = true` on its router because it owns the disposable example network; do not use that setting for shared or pre-existing networks.
 
 ## Usage
 
@@ -32,22 +34,28 @@ export NAYATEL_TOKEN="your-jwt-token"
 terraform init
 ```
 
-3. Review the plan:
+3. Make sure the private key matching `ssh_public_key` is loaded in your SSH agent if you keep `enable_https_bootstrap = true`:
+
+```shell
+ssh-add ~/.ssh/id_ed25519
+```
+
+4. Review the plan:
 
 ```shell
 terraform plan
 ```
 
-4. Apply the configuration:
+5. Apply the configuration:
 
 ```shell
 terraform apply
 ```
 
-To run the optional compute example, pass:
+To run only the lower-cost smoke-test resources, pass:
 
 ```shell
-terraform apply -var='enable_compute_example=true'
+terraform apply -var='enable_compute_example=false'
 ```
 
-This creates billable router, instance, and floating IP resources. Be prepared to verify cleanup in the Nayatel portal if router deletion is blocked by an active interface.
+The default creates billable router, instance, and floating IP resources. The HTTPS bootstrap assumes an apt-based Ubuntu/Debian image and can be disabled with `-var='enable_https_bootstrap=false'`.
