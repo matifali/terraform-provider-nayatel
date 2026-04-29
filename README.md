@@ -37,31 +37,48 @@ provider_installation {
 
 ## Authentication
 
-The provider supports three authentication methods:
+The provider supports two non-interactive credential modes. Environment variables are recommended so secrets do not need to be stored in Terraform configuration.
 
-### Option 1: Environment Variables (Recommended)
+### Username and password
 
 ```shell
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_PASSWORD="your-password"
 ```
 
-### Option 2: Token-based Authentication
+Password authentication uses Nayatel's CSRF/session-protected form login and may cache a JWT under your user config directory (for example, `~/.config/nayatel`) with owner-only file permissions. Delete the cache file to force a fresh login.
+
+### Username and token
 
 ```shell
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_TOKEN="your-jwt-token"
 ```
 
-### Option 3: Provider Block Configuration
+`NAYATEL_USERNAME` is still required when using `NAYATEL_TOKEN`. If both token and password are configured, the token is used.
+
+Optional authentication-related settings:
+
+```shell
+export NAYATEL_PROJECT_ID="your-project-id"   # optional default project
+export NAYATEL_BASE_URL="https://cloud.nayatel.com/api" # optional trusted Nayatel-compatible API
+```
+
+Provider block arguments are also supported, but environment variables are preferred for secrets:
 
 ```hcl
 provider "nayatel" {
   username = "your-username"
   password = "your-password"
-  # OR
+  # OR, with username still set:
   # token = "your-jwt-token"
 }
+```
+
+To run the live, non-mutating safety smoke test, opt in explicitly:
+
+```shell
+NAYATEL_RUN_SAFETY_CHECKS=1 go test -v -run TestSafetyChecks ./internal/client/.
 ```
 
 ## Usage

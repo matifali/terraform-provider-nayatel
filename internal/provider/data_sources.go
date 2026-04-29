@@ -154,7 +154,7 @@ func (d *FlavorsDataSource) Configure(ctx context.Context, req datasource.Config
 }
 
 func (d *FlavorsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data FlavorsDataSourceModel
+	data := FlavorsDataSourceModel{Flavors: []FlavorModel{}}
 
 	flavors, err := d.client.Flavors.List(ctx)
 	if err != nil {
@@ -554,7 +554,9 @@ func (d *FloatingIPsDataSource) Configure(ctx context.Context, req datasource.Co
 }
 
 func (d *FloatingIPsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data FloatingIPsDataSourceModel
+	data := FloatingIPsDataSourceModel{
+		FloatingIPs: []FloatingIPDataModel{},
+	}
 
 	fips, err := d.client.FloatingIPs.List(ctx)
 	if err != nil {

@@ -2,23 +2,40 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
-// TestSafetyChecks tests the balance and preview APIs without creating resources.
-// Run with: go test -v -run TestSafetyChecks ./internal/client/.
+// TestSafetyChecks tests the live balance and preview APIs without creating resources.
+// It is skipped unless explicitly enabled because it calls live Nayatel endpoints.
+// Run with: NAYATEL_RUN_SAFETY_CHECKS=1 go test -v -run TestSafetyChecks ./internal/client/.
 func TestSafetyChecks(t *testing.T) {
-	username := os.Getenv("NAYATEL_USERNAME")
-	token := os.Getenv("NAYATEL_TOKEN")
-
-	if username == "" || token == "" {
-		t.Skip("Set NAYATEL_USERNAME and NAYATEL_TOKEN to run this test")
+	if os.Getenv("NAYATEL_RUN_SAFETY_CHECKS") != "1" {
+		t.Skip("Set NAYATEL_RUN_SAFETY_CHECKS=1 to run live Nayatel safety checks")
 	}
 
-	c := NewClient(username, token)
+	username := os.Getenv("NAYATEL_USERNAME")
+	token := os.Getenv("NAYATEL_TOKEN")
+	password := os.Getenv("NAYATEL_PASSWORD")
+
+	if username == "" || (token == "" && password == "") {
+		t.Skip("Set NAYATEL_USERNAME with NAYATEL_TOKEN or NAYATEL_PASSWORD to run this test")
+	}
+
 	ctx := context.Background()
+	var c *Client
+	if token != "" {
+		c = NewClient(username, token)
+	} else {
+		var err error
+		c, err = NewClientWithLogin(ctx, username, password)
+		if err != nil {
+			t.Fatalf("NewClientWithLogin failed: %s", err)
+		}
+	}
 
 	fmt.Println("")
 	fmt.Println("=== Testing Safety Checks (NO resources will be created) ===")
@@ -53,7 +70,11 @@ func TestSafetyChecks(t *testing.T) {
 	netReq := &NetworkCreateRequest{BandwidthLimit: 1}
 	netPreview, err := c.Networks.Preview(ctx, netReq)
 	if err != nil {
-		t.Errorf("Network Preview failed: %s", err)
+		if isNetworkBandwidthAlreadyExistsError(err) {
+			t.Logf("Network Preview skipped because this account already has a network with the requested bandwidth: %s", err)
+		} else {
+			t.Errorf("Network Preview failed: %s", err)
+		}
 	} else {
 		cost := ExtractCostFromPreview(netPreview)
 		fmt.Printf("   Network cost (prorated): Rs. %.2f\n", cost)
@@ -94,4 +115,15 @@ func TestSafetyChecks(t *testing.T) {
 	fmt.Println("\n=== Safety Check Summary ===")
 	fmt.Println("If all above calls succeeded, the safety checks will work.")
 	fmt.Println("NO resources were created, NO charges were made.")
+}
+
+func isNetworkBandwidthAlreadyExistsError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 400 {
+		return false
+	}
+
+	message := strings.ToLower(apiErr.Message)
+	return strings.Contains(message, "network with the bandwidth") &&
+		strings.Contains(message, "already exists")
 }

@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 )
 
 // RouterService handles router operations.
@@ -72,6 +74,104 @@ func (s *RouterService) AddInterface(ctx context.Context, routerID, subnetID str
 	}
 
 	return &apiResp, nil
+}
+
+// RemoveInterface removes an interface from a router.
+func (s *RouterService) RemoveInterface(ctx context.Context, routerID, subnetID string) (*APIResponse, error) {
+	payload := map[string]string{"subnet_id": subnetID}
+	deleteEndpoint := fmt.Sprintf("/iaas/router/%s/interface", routerID)
+	postRemoveEndpoint := fmt.Sprintf("/iaas/router/%s/interface/remove", routerID)
+
+	var deleteResp *APIResponse
+	resp, deleteErr := s.client.Delete(ctx, deleteEndpoint, payload)
+	if deleteErr == nil {
+		var appErr error
+		deleteResp, appErr = decodeRouterInterfaceResponse(resp, "DELETE", deleteEndpoint)
+		if appErr != nil {
+			deleteErr = appErr
+		}
+	} else if !shouldFallbackRouterInterfaceRemove(deleteErr) {
+		return nil, deleteErr
+	}
+
+	// The live Nayatel API has returned a successful response from the DELETE
+	// endpoint while the router interface remained attached. Always also try the
+	// documented/observed POST remove endpoint so the link is actually removed
+	// before router deletion. If DELETE succeeded and POST is unavailable, keep
+	// the DELETE success for backwards compatibility.
+	resp, postErr := s.client.Post(ctx, postRemoveEndpoint, payload)
+	if postErr == nil {
+		apiResp, err := decodeRouterInterfaceResponse(resp, "POST", postRemoveEndpoint)
+		if err == nil {
+			return apiResp, nil
+		}
+		postErr = err
+	}
+
+	if deleteErr == nil && deleteResp != nil {
+		return deleteResp, nil
+	}
+
+	return nil, fmt.Errorf("unable to remove router interface with DELETE %s or POST %s fallback: delete failed: %v; post failed: %w", deleteEndpoint, postRemoveEndpoint, deleteErr, postErr)
+}
+
+func shouldFallbackRouterInterfaceRemove(err error) bool {
+	return isAPIStatus(err, http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed) || isRouterAPIResponseError(err)
+}
+
+func decodeRouterInterfaceResponse(resp []byte, method, endpoint string) (*APIResponse, error) {
+	var apiResp APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if routerAPIResponseFailed(resp, apiResp) {
+		return nil, &routerAPIResponseError{
+			Method:   method,
+			Endpoint: endpoint,
+			Response: apiResp,
+		}
+	}
+
+	return &apiResp, nil
+}
+
+func routerAPIResponseFailed(resp []byte, apiResp APIResponse) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(resp, &fields); err != nil {
+		return false
+	}
+
+	_, statusPresent := fields["status"]
+	return statusPresent && !apiResp.Status
+}
+
+type routerAPIResponseError struct {
+	Method   string
+	Endpoint string
+	Response APIResponse
+}
+
+func (e *routerAPIResponseError) Error() string {
+	return fmt.Sprintf("%s %s returned unsuccessful response: status=%t message=%q", e.Method, e.Endpoint, e.Response.Status, e.Response.Message)
+}
+
+func isRouterAPIResponseError(err error) bool {
+	var apiRespErr *routerAPIResponseError
+	return errors.As(err, &apiRespErr)
+}
+
+func isAPIStatus(err error, statusCodes ...int) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	for _, statusCode := range statusCodes {
+		if apiErr.StatusCode == statusCode {
+			return true
+		}
+	}
+	return false
 }
 
 // Delete deletes a router.

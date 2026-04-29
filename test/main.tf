@@ -6,10 +6,10 @@ terraform {
   }
 }
 
-# Configure credentials via environment variables:
+# Configure credentials via environment variables (recommended):
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_PASSWORD="your-password"
-# or
+# or token auth (username is still required):
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_TOKEN="your-jwt-token"
 provider "nayatel" {}

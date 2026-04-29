@@ -191,13 +191,26 @@ func (r *SSHKeyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	tflog.Debug(ctx, "Deleting SSH key", map[string]any{"name": data.Name.ValueString()})
 
-	err := r.client.SSHKeys.Delete(ctx, data.Name.ValueString())
-	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete SSH key: %s", err))
-		return
+	name := data.Name.ValueString()
+	err := r.client.SSHKeys.Delete(ctx, name)
+	if err != nil {
+		if !client.IsNotFound(err) {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete SSH key: %s", err))
+			return
+		}
+
+		key, verifyErr := r.client.SSHKeys.Get(ctx, name)
+		if verifyErr != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to verify SSH key deletion after API returned not found: %s", verifyErr))
+			return
+		}
+		if key != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete SSH key %q: delete endpoint returned not found, but the key still exists in the SSH key list", name))
+			return
+		}
 	}
 
-	tflog.Trace(ctx, "Deleted SSH key", map[string]any{"name": data.Name.ValueString()})
+	tflog.Trace(ctx, "Deleted SSH key", map[string]any{"name": name})
 }
 
 func (r *SSHKeyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

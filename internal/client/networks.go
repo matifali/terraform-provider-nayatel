@@ -158,3 +158,19 @@ func (s *NetworkService) FindByID(ctx context.Context, networkID string) (*Netwo
 
 	return nil, nil
 }
+
+// FindBySubnetID finds a network by its last subnet ID.
+func (s *NetworkService) FindBySubnetID(ctx context.Context, subnetID string) (*Network, error) {
+	networks, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, network := range networks {
+		if network.SubnetID == subnetID {
+			return &network, nil
+		}
+	}
+
+	return nil, nil
+}

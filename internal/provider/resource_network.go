@@ -274,10 +274,17 @@ func (r *NetworkResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	// Only calculate cost for new resources
+	// Only calculate cost for new resources.
 	var state NetworkResourceModel
 	req.State.Get(ctx, &state)
 	if !state.ID.IsNull() {
+		return
+	}
+
+	// Terraform may call ModifyPlan again during apply as unknown values become
+	// known. Preserve an already-planned cost so a time-sensitive prorated API
+	// preview cannot change the final plan and fail the apply.
+	if !plan.MonthlyCost.IsNull() && !plan.MonthlyCost.IsUnknown() {
 		return
 	}
 

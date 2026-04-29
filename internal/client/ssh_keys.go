@@ -80,6 +80,11 @@ type SSHKeyCreateRequest struct {
 	KeyContent string `json:"key_content"`
 }
 
+// SSHKeyDeleteRequest represents the request body for deleting an SSH key.
+type SSHKeyDeleteRequest struct {
+	Name string `json:"name"`
+}
+
 // Create creates a new SSH key.
 func (s *SSHKeyService) Create(ctx context.Context, req *SSHKeyCreateRequest) (*SSHKey, error) {
 	resp, err := s.client.Post(ctx, fmt.Sprintf("/user/%s/ssh", s.client.Username), req)
@@ -104,7 +109,7 @@ func (s *SSHKeyService) Create(ctx context.Context, req *SSHKeyCreateRequest) (*
 
 // Delete deletes an SSH key by name.
 func (s *SSHKeyService) Delete(ctx context.Context, name string) error {
-	_, err := s.client.Delete(ctx, fmt.Sprintf("/user/%s/ssh/%s", s.client.Username, name), nil)
+	_, err := s.client.Delete(ctx, fmt.Sprintf("/user/%s/ssh", s.client.Username), &SSHKeyDeleteRequest{Name: name})
 	if err != nil {
 		return err
 	}

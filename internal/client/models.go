@@ -377,10 +377,16 @@ func (r *SecurityGroupRuleCreateRequest) ToAPIPayload() map[string]interface{} {
 			case "udp", "UDP":
 				ruleName = "Custom UDP Rule"
 			case "icmp", "ICMP":
-				ruleName = "ICMP"
+				ruleName = "All ICMP"
 			default:
 				ruleName = "Custom TCP Rule" // Default to TCP
 			}
+		}
+	}
+	if ruleName == "" {
+		switch r.Protocol {
+		case "icmp", "ICMP":
+			ruleName = "All ICMP"
 		}
 	}
 	if ruleName != "" {
