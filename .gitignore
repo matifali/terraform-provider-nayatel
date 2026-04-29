@@ -5,8 +5,27 @@ terraform-provider-nayatel
 *.exe
 .DS_Store
 example.tf
-terraform.tfplan
-terraform.tfstate
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Terraform local runtime artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+
 bin/
 dist/
 modules-dev/
