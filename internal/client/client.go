@@ -236,6 +236,9 @@ type Client struct {
 
 	// Volumes provides volume operations.
 	Volumes *VolumeService
+
+	// Cubes provides Cubes (managed container) operations.
+	Cubes *CubeService
 }
 
 // ClientOption is a function that configures the client.
@@ -320,6 +323,7 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 	c.SSHKeys = &SSHKeyService{client: c}
 	c.Projects = &ProjectService{client: c}
 	c.Volumes = &VolumeService{client: c}
+	c.Cubes = &CubeService{client: c}
 
 	return c
 }

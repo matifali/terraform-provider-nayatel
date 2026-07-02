@@ -187,6 +187,7 @@ func (p *NayatelProvider) Resources(ctx context.Context) []func() resource.Resou
 		NewVolumeResource,
 		NewVolumeAttachmentResource,
 		NewSSHKeyResource,
+		NewCubeResource,
 	}
 }
 
