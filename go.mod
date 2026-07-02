@@ -1,6 +1,6 @@
 module github.com/matifali/terraform-provider-nayatel
 
-go 1.25.8
+go 1.26.4
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
