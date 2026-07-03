@@ -9,7 +9,7 @@ description: |-
 
 Manages a Nayatel Cube — a managed container (LXD-backed), distinct from IaaS virtual machines.
 
-~> **Experimental / work in progress.** Cubes support is new and the underlying Nayatel API is still evolving. This resource may change in backwards-incompatible ways or be temporarily unavailable between provider releases. Pin the provider version and use with caution.
+~> Cubes support is **experimental and a work in progress**. The underlying Nayatel API is still evolving, so this resource may change in backwards-incompatible ways or be temporarily unavailable between provider releases. Pin the provider version and use with caution.
 
 -> The CPU/RAM pair must be one of the combinations offered by Nayatel (e.g. 2/2, 2/4, 4/8, 4/16). The provider validates the pair against the live catalog before creating and lists the allowed combinations on mismatch. Root disk size is independent of the pair.
 

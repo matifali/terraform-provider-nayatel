@@ -12,7 +12,7 @@ Allocates a Nayatel Cloud floating IP.
 This resource allocates an actual floating IP address that can be attached to instances.
 Similar to AWS's `aws_eip` resource.
 
-~> **Note**: Due to Nayatel API limitations, an `instance_id` is required to allocate
+~> Due to Nayatel API limitations, an `instance_id` is required to allocate
 the IP. The IP will be attached to this instance initially. Use `nayatel_floating_ip_association`
 to move the IP to a different instance later.
 

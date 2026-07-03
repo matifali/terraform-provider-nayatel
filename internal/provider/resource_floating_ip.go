@@ -55,7 +55,7 @@ func (r *FloatingIPResource) Schema(ctx context.Context, req resource.SchemaRequ
 This resource allocates an actual floating IP address that can be attached to instances.
 Similar to AWS's ` + "`aws_eip`" + ` resource.
 
-~> **Note**: Due to Nayatel API limitations, an ` + "`instance_id`" + ` is required to allocate
+~> Due to Nayatel API limitations, an ` + "`instance_id`" + ` is required to allocate
 the IP. The IP will be attached to this instance initially. Use ` + "`nayatel_floating_ip_association`" + `
 to move the IP to a different instance later.
 
@@ -414,7 +414,7 @@ func (r *FloatingIPAssociationResource) Schema(ctx context.Context, req resource
 Similar to AWS's ` + "`aws_eip_association`" + ` resource. Use this to attach an existing
 floating IP to an instance.
 
-~> **Cost Warning**: By default, ` + "`release_on_destroy = false`" + ` which only detaches
+!> By default, ` + "`release_on_destroy = false`" + `, which only detaches
 the IP (it remains allocated and you keep paying). Set ` + "`release_on_destroy = true`" + `
 to release the IP on destroy if you don't need it anymore.
 

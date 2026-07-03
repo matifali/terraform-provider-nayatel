@@ -12,7 +12,7 @@ Associates a floating IP with an instance.
 Similar to AWS's `aws_eip_association` resource. Use this to attach an existing
 floating IP to an instance.
 
-~> **Cost Warning**: By default, `release_on_destroy = false` which only detaches
+!> By default, `release_on_destroy = false`, which only detaches
 the IP (it remains allocated and you keep paying). Set `release_on_destroy = true`
 to release the IP on destroy if you don't need it anymore.
 
