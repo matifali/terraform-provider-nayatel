@@ -23,8 +23,10 @@ const (
 	// DefaultBaseURL is the default Nayatel Cloud API base URL.
 	DefaultBaseURL = "https://cloud.nayatel.com/api"
 
-	// DefaultTimeout is the default HTTP client timeout.
-	DefaultTimeout = 30 * time.Second
+	// DefaultTimeout is the default HTTP client timeout. Provisioning
+	// POSTs (cube/instance creation) are synchronous on the API side and
+	// regularly take over 30 seconds, so this must stay generous.
+	DefaultTimeout = 120 * time.Second
 
 	// tokenCacheDir is the directory name for caching tokens.
 	tokenCacheDir = "nayatel"
