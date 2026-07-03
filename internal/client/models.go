@@ -49,7 +49,6 @@ type Instance struct {
 	Status         InstanceStatus         `json:"Status,omitempty"`
 	StatusLower    InstanceStatus         `json:"status,omitempty"`
 	PowerState     string                 `json:"Power State,omitempty"`
-	Flavor         *Flavor                `json:"flavor,omitempty"`
 	Image          *Image                 `json:"image,omitempty"`
 	KeyName        string                 `json:"key_name,omitempty"`
 	Addresses      map[string][]Address   `json:"addresses,omitempty"`
@@ -417,44 +416,6 @@ type Image struct {
 	OSDistro  string                 `json:"os_distro,omitempty"`
 	OSVersion string                 `json:"os_version,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// Flavor represents a Nayatel Cloud flavor (instance size).
-type Flavor struct {
-	ID           string  `json:"id,omitempty"`
-	Name         string  `json:"name,omitempty"`
-	VCPUs        int     `json:"vcpus,omitempty"`
-	CPU          int     `json:"CPU,omitempty"` // Alternative field name
-	RAM          int     `json:"ram,omitempty"` // in MB or GB depending on source
-	RAMAlt       int     `json:"RAM,omitempty"` // Alternative field name
-	Disk         int     `json:"disk,omitempty"`
-	Storage      int     `json:"STORAGE,omitempty"` // Alternative field name
-	PriceHourly  float64 `json:"price_hourly,omitempty"`
-	PriceMonthly float64 `json:"price_monthly,omitempty"`
-}
-
-// GetVCPUs returns the number of vCPUs (handles both field names).
-func (f *Flavor) GetVCPUs() int {
-	if f.VCPUs > 0 {
-		return f.VCPUs
-	}
-	return f.CPU
-}
-
-// GetRAM returns the RAM (handles both field names).
-func (f *Flavor) GetRAM() int {
-	if f.RAM > 0 {
-		return f.RAM
-	}
-	return f.RAMAlt
-}
-
-// GetDisk returns the disk size (handles both field names).
-func (f *Flavor) GetDisk() int {
-	if f.Disk > 0 {
-		return f.Disk
-	}
-	return f.Storage
 }
 
 // SSHKey represents a Nayatel Cloud SSH key.

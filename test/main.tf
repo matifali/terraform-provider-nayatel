@@ -9,13 +9,16 @@ terraform {
 # Configure credentials via environment variables (recommended):
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_PASSWORD="your-password"
-# or token auth (username is still required):
-#   export NAYATEL_USERNAME="your-username"
-#   export NAYATEL_TOKEN="your-jwt-token"
 provider "nayatel" {}
 
-# Get available SSH keys
-data "nayatel_ssh_keys" "available" {}
+data "nayatel_image" "ubuntu" {
+  name = "Ubuntu 24.04"
+}
+
+# Reference the SSH key registered via the portal
+data "nayatel_ssh_key" "personal" {
+  name = "personal"
+}
 
 # Step 1: Create a network (25/250 Mbps)
 resource "nayatel_network" "main" {
@@ -44,12 +47,12 @@ resource "nayatel_security_group" "ssh" {
 # Step 4: Create instance (2 cores, 2 GB RAM, 20 GB disk)
 resource "nayatel_instance" "web" {
   name            = "terraform-test"
-  image_id        = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919" # Ubuntu 24.04
+  image_id        = data.nayatel_image.ubuntu.id
   cpu             = 2
   ram             = 2
   disk            = 20
   network_id      = nayatel_network.main.id
-  ssh_fingerprint = data.nayatel_ssh_keys.available.keys[0].fingerprint
+  ssh_fingerprint = data.nayatel_ssh_key.personal.fingerprint
 
   depends_on = [nayatel_router.main]
 }

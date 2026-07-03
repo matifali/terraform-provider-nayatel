@@ -10,16 +10,10 @@ terraform {
 #   export NAYATEL_USERNAME="your-username"
 #   export NAYATEL_PASSWORD="your-password"
 #
-# Or use token auth; username is still required:
-#   export NAYATEL_USERNAME="your-username"
-#   export NAYATEL_TOKEN="your-jwt-token"
-#
 # Provider block arguments are also supported, but avoid storing secrets in code.
 provider "nayatel" {
   # username = "your-username"
   # password = "your-password"
-  # OR, with username still set:
-  # token = "your-jwt-token"
 }
 
 # Set this to false to run only the lower-cost smoke-test resources.
@@ -45,7 +39,7 @@ variable "network_bandwidth_limit" {
 variable "image_id" {
   type        = string
   default     = ""
-  description = "Optional image ID for the compute example. If empty, Ubuntu 24.04 is selected when available, otherwise the first image from data.nayatel_images.available is used."
+  description = "Optional image ID for the compute example. If empty, Ubuntu 24.04 is looked up by name via the nayatel_image data source."
 }
 
 variable "ssh_public_key" {
@@ -67,32 +61,19 @@ variable "enable_https_bootstrap" {
 }
 
 locals {
-  ubuntu_2404_image_ids = [
-    for image in data.nayatel_images.available.images : image.id
-    if can(regex("Ubuntu 24\\.04", image.name))
-  ]
-
-  example_image_id = var.image_id != "" ? var.image_id : try(local.ubuntu_2404_image_ids[0], data.nayatel_images.available.images[0].id)
+  example_image_id = var.image_id != "" ? var.image_id : data.nayatel_image.ubuntu.id
 }
 
-# Get available images
-# Use this list to choose a stable image ID for production configurations.
+# Matches "Ubuntu 24.04 LTS (Noble Numbat)" via case-insensitive substring lookup.
+data "nayatel_image" "ubuntu" {
+  name = "Ubuntu 24.04"
+}
+
+# Full image catalog, useful for discovering names for the nayatel_image lookup.
 data "nayatel_images" "available" {}
 
-# Get available SSH keys
-data "nayatel_ssh_keys" "available" {}
-
-# Get available security groups
-data "nayatel_security_groups" "available" {}
-
-# Output available images
 output "images" {
   value = data.nayatel_images.available.images
-}
-
-# Output SSH keys
-output "ssh_keys" {
-  value = data.nayatel_ssh_keys.available.keys
 }
 
 # Create an SSH key (managed by Terraform)

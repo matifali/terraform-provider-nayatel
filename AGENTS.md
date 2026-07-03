@@ -48,10 +48,9 @@ Technology choices:
 
 ### Architecture notes
 
-- Provider configuration accepts `username`, `password`, `token`, `project_id`, and `base_url`, with environment variable fallbacks: `NAYATEL_USERNAME`, `NAYATEL_PASSWORD`, `NAYATEL_TOKEN`, `NAYATEL_PROJECT_ID`, and `NAYATEL_BASE_URL`.
+- Provider configuration accepts `username`, `password`, and `project_id`, with environment variable fallbacks: `NAYATEL_USERNAME`, `NAYATEL_PASSWORD`, and `NAYATEL_PROJECT_ID`.
 - `Configure` validates credentials and creates one shared `*client.Client`, which is assigned to both `resp.ResourceData` and `resp.DataSourceData`.
-- Username is required even when using token authentication.
-- Password login uses a cached JWT when possible; cache files live under `$XDG_CONFIG_HOME/nayatel` or `~/.config/nayatel`.
+- Login uses a cached JWT when possible; cache files live under `$XDG_CONFIG_HOME/nayatel` or `~/.config/nayatel`.
 - Client requests set `Authorization: Bearer <token>` and JSON headers in `Client.Request`.
 - `Client.GetProjectID` lazily discovers the first project if no project ID is configured.
 - Nayatel API response shapes vary. Existing client list/preview helpers often decode multiple formats; preserve that defensive parsing when adding endpoints.
@@ -98,7 +97,7 @@ go test ./internal/provider -run TestExtractCostFromPreview
 go test -v -run TestSafetyChecks ./internal/client/.
 ```
 
-`TestSafetyChecks` calls live balance/preview APIs and requires `NAYATEL_USERNAME` plus `NAYATEL_TOKEN`; it is intended not to create resources.
+`TestSafetyChecks` calls live balance/preview APIs and requires `NAYATEL_USERNAME` plus `NAYATEL_PASSWORD`; it is intended not to create resources.
 
 Acceptance tests create real resources and may incur costs. Run them only with explicit credentials and cost awareness:
 

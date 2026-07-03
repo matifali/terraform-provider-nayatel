@@ -18,15 +18,13 @@ description: |-
 
 ## Authentication
 
-The provider needs a `username` plus either a `password` or a JWT `token`. Credentials can be set in the provider block or via environment variables:
+The provider needs a `username` and `password`. Credentials can be set in the provider block or via environment variables:
 
 ```shell
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_PASSWORD="your-password"
-# or, instead of a password:
-export NAYATEL_TOKEN="your-jwt-token"
 ```
 
--> When authenticating with a password, the obtained session token is cached under `~/.config/nayatel/` and reused until it expires, so repeated Terraform runs do not re-authenticate.
+-> The session token obtained at login is cached under `~/.config/nayatel/` and reused until it expires, so repeated Terraform runs do not re-authenticate.
 
 {{ .SchemaMarkdown | trimspace }}

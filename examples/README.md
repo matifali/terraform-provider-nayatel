@@ -16,16 +16,11 @@ The compute section is enabled by default and creates billable resources. The ex
 
 ## Usage
 
-1. Set credentials with one of the supported non-interactive modes (environment variables are recommended):
+1. Set credentials (environment variables are recommended):
 
 ```shell
-# Username/password form login
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_PASSWORD="your-password"
-
-# OR username/token auth (username is still required)
-export NAYATEL_USERNAME="your-username"
-export NAYATEL_TOKEN="your-jwt-token"
 ```
 
 2. Initialize Terraform:

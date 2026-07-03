@@ -25,7 +25,6 @@ func TestAccNetworkResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "subnet_id"),
 					resource.TestCheckResourceAttrSet("nayatel_network.test", "subnet_cidr"),
 					resource.TestCheckResourceAttr("nayatel_network.test", "bandwidth_limit", fmt.Sprintf("%d", bandwidth)),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_networks.all", "networks", "id", "nayatel_network.test", "id"),
 				),
 			},
 			{
@@ -44,10 +43,6 @@ provider "nayatel" {}
 
 resource "nayatel_network" "test" {
   bandwidth_limit = %d
-}
-
-data "nayatel_networks" "all" {
-  depends_on = [nayatel_network.test]
 }
 `, bandwidth)
 }

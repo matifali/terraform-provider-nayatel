@@ -2,12 +2,12 @@
 page_title: "nayatel_images Data Source - nayatel"
 subcategory: "IaaS"
 description: |-
-  List available OS images.
+  List available OS images. Use this to discover the image catalog; to look up a single image by name, use the nayatel_image data source instead.
 ---
 
 # nayatel_images (Data Source)
 
-List available OS images.
+List available OS images. Use this to discover the image catalog; to look up a single image by name, use the `nayatel_image` data source instead.
 
 ## Example Usage
 

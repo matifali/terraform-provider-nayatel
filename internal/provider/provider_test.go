@@ -34,18 +34,8 @@ func TestProviderSchemaAuthenticationAttributes(t *testing.T) {
 		t.Fatalf("password attribute must be sensitive")
 	}
 
-	tokenAttr, ok := resp.Schema.Attributes["token"].(schema.StringAttribute)
-	if !ok {
-		t.Fatalf("token attribute type = %T, want schema.StringAttribute", resp.Schema.Attributes["token"])
-	}
-	if !tokenAttr.Sensitive {
-		t.Fatalf("token attribute must be sensitive")
-	}
-	if strings.Contains(tokenAttr.MarkdownDescription, "username/password are not required") {
-		t.Fatalf("token description still claims username/password are not required: %s", tokenAttr.MarkdownDescription)
-	}
-	if !strings.Contains(tokenAttr.MarkdownDescription, "username") {
-		t.Fatalf("token description should mention username is still required: %s", tokenAttr.MarkdownDescription)
+	if _, exists := resp.Schema.Attributes["token"]; exists {
+		t.Fatalf("token attribute should no longer exist; authentication uses username/password only")
 	}
 }
 
@@ -56,7 +46,6 @@ func TestValidateAuthenticationConfig(t *testing.T) {
 		name           string
 		username       string
 		password       string
-		token          string
 		wantValid      bool
 		wantAttribute  string
 		wantSummary    string
@@ -66,21 +55,21 @@ func TestValidateAuthenticationConfig(t *testing.T) {
 			name:           "missing all credentials",
 			wantAttribute:  "username",
 			wantSummary:    "Missing Nayatel API Credentials",
-			wantDetailText: "username` plus either `token` or `password",
+			wantDetailText: "username` and `password",
 		},
 		{
-			name:           "token without username",
-			token:          "jwt-token",
-			wantAttribute:  "username",
-			wantSummary:    "Missing Username",
-			wantDetailText: "Username is required even when using a token",
-		},
-		{
-			name:           "username without password or token",
+			name:           "username without password",
 			username:       "user",
 			wantAttribute:  "password",
 			wantSummary:    "Missing Nayatel API Credentials",
-			wantDetailText: "username` plus either `token` or `password",
+			wantDetailText: "username` and `password",
+		},
+		{
+			name:           "password without username",
+			password:       "password",
+			wantAttribute:  "username",
+			wantSummary:    "Missing Nayatel API Credentials",
+			wantDetailText: "username` and `password",
 		},
 		{
 			name:      "username and password",
@@ -88,24 +77,11 @@ func TestValidateAuthenticationConfig(t *testing.T) {
 			password:  "password",
 			wantValid: true,
 		},
-		{
-			name:      "username and token",
-			username:  "user",
-			token:     "jwt-token",
-			wantValid: true,
-		},
-		{
-			name:      "username token and password",
-			username:  "user",
-			password:  "password",
-			token:     "jwt-token",
-			wantValid: true,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			diag := validateAuthenticationConfig(tt.username, tt.password, tt.token)
+			diag := validateAuthenticationConfig(tt.username, tt.password)
 			if tt.wantValid {
 				if diag != nil {
 					t.Fatalf("validateAuthenticationConfig returned diagnostic: %#v", diag)
@@ -136,9 +112,7 @@ func testAccPreCheck(t *testing.T) {
 	if v := os.Getenv("NAYATEL_USERNAME"); v == "" {
 		t.Fatal("NAYATEL_USERNAME must be set for acceptance tests")
 	}
-	if v := os.Getenv("NAYATEL_TOKEN"); v == "" {
-		if v := os.Getenv("NAYATEL_PASSWORD"); v == "" {
-			t.Fatal("NAYATEL_TOKEN or NAYATEL_PASSWORD must be set with NAYATEL_USERNAME for acceptance tests")
-		}
+	if v := os.Getenv("NAYATEL_PASSWORD"); v == "" {
+		t.Fatal("NAYATEL_PASSWORD must be set with NAYATEL_USERNAME for acceptance tests")
 	}
 }

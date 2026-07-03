@@ -26,7 +26,6 @@ func TestAccSecurityGroupResource_basic(t *testing.T) {
 					resource.TestMatchResourceAttr("nayatel_security_group.test", "name", regexp.MustCompile("^"+regexp.QuoteMeta(name)+"(-.*)?$")),
 					resource.TestCheckResourceAttr("nayatel_security_group.test", "description", description),
 					resource.TestCheckResourceAttr("nayatel_security_group.test", "rule.#", "1"),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_security_groups.all", "security_groups", "id", "nayatel_security_group.test", "id"),
 				),
 			},
 		},
@@ -82,10 +81,6 @@ resource "nayatel_security_group" "test" {
     port_number = "22"
     cidr        = "0.0.0.0/0"
   }
-}
-
-data "nayatel_security_groups" "all" {
-  depends_on = [nayatel_security_group.test]
 }
 `, name, description)
 }

@@ -25,7 +25,6 @@ func TestAccVolumeResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_volume.test", "name", name),
 					resource.TestCheckResourceAttr("nayatel_volume.test", "size", fmt.Sprintf("%d", size)),
 					resource.TestCheckResourceAttrSet("nayatel_volume.test", "status"),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_volumes.all", "volumes", "id", "nayatel_volume.test", "id"),
 				),
 			},
 			{
@@ -44,10 +43,6 @@ provider "nayatel" {}
 resource "nayatel_volume" "test" {
   name = %q
   size = %d
-}
-
-data "nayatel_volumes" "all" {
-  depends_on = [nayatel_volume.test]
 }
 `, name, size)
 }

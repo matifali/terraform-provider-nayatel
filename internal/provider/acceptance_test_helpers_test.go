@@ -189,31 +189,6 @@ func testAccPreCheckVolumes(t *testing.T) {
 	}
 }
 
-func testAccPreCheckFlavors(t *testing.T) {
-	t.Helper()
-
-	testAccPreCheck(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
-	defer cancel()
-
-	c, err := testAccClientFromEnv(ctx)
-	if err != nil {
-		t.Fatalf("failed to create Nayatel client for flavors acceptance precheck: %s", err)
-	}
-
-	flavors, err := c.Flavors.List(ctx)
-	if err != nil {
-		if testAccIsRateLimitedError(err) {
-			t.Skipf("Skipping flavors data source acceptance test: Nayatel API rate limited the flavors lookup; retry later: %s", err)
-		}
-		t.Fatalf("flavors lookup failed before running data source acceptance test: %s", err)
-	}
-	if len(flavors) == 0 {
-		t.Skip("Skipping flavors data source acceptance test: the live Nayatel account/API returned no flavors")
-	}
-}
-
 func testAccPreCheckVolumeAttachments(t *testing.T, bandwidth int) {
 	t.Helper()
 
@@ -255,19 +230,12 @@ func testAccNetworkBandwidthPreviewError(t *testing.T, bandwidth int) error {
 }
 
 func testAccClientFromEnv(ctx context.Context) (*nayatelclient.Client, error) {
-	options := make([]nayatelclient.ClientOption, 0, 2)
-	if baseURL := os.Getenv("NAYATEL_BASE_URL"); baseURL != "" {
-		options = append(options, nayatelclient.WithBaseURL(baseURL))
-	}
+	options := make([]nayatelclient.ClientOption, 0, 1)
 	if projectID := os.Getenv("NAYATEL_PROJECT_ID"); projectID != "" {
 		options = append(options, nayatelclient.WithProjectID(projectID))
 	}
 
 	username := os.Getenv("NAYATEL_USERNAME")
-	if token := os.Getenv("NAYATEL_TOKEN"); token != "" {
-		return nayatelclient.NewClient(username, token, options...), nil
-	}
-
 	return nayatelclient.NewClientWithLogin(ctx, username, os.Getenv("NAYATEL_PASSWORD"), options...)
 }
 
@@ -351,80 +319,6 @@ func testAccCheckAnyNestedAttrsSet(resourceName, listAttr string, nestedAttrs ..
 		}
 
 		return fmt.Errorf("%s.%s: no element has all attributes set: %s", resourceName, listAttr, strings.Join(nestedAttrs, ", "))
-	}
-}
-
-func testAccCheckAnyNestedAttrsSetAndIntAttrsPositive(resourceName, listAttr string, stringAttrs, intAttrs []string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		state, err := testAccPrimaryInstanceState(s, resourceName)
-		if err != nil {
-			return err
-		}
-
-		count, err := testAccNestedListCount(state, listAttr)
-		if err != nil {
-			return fmt.Errorf("%s.%s: %w", resourceName, listAttr, err)
-		}
-
-		for i := 0; i < count; i++ {
-			allValid := true
-			for _, nestedAttr := range stringAttrs {
-				key := fmt.Sprintf("%s.%d.%s", listAttr, i, nestedAttr)
-				if strings.TrimSpace(state.Attributes[key]) == "" {
-					allValid = false
-					break
-				}
-			}
-			if !allValid {
-				continue
-			}
-			for _, nestedAttr := range intAttrs {
-				key := fmt.Sprintf("%s.%d.%s", listAttr, i, nestedAttr)
-				value, err := strconv.Atoi(state.Attributes[key])
-				if err != nil || value <= 0 {
-					allValid = false
-					break
-				}
-			}
-			if allValid {
-				return nil
-			}
-		}
-
-		return fmt.Errorf("%s.%s: no element has required string attributes %s and positive integer attributes %s", resourceName, listAttr, strings.Join(stringAttrs, ", "), strings.Join(intAttrs, ", "))
-	}
-}
-
-func testAccCheckNestedListContainsResourceAttr(dataSourceName, listAttr, nestedAttr, resourceName, resourceAttr string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		dataState, err := testAccPrimaryInstanceState(s, dataSourceName)
-		if err != nil {
-			return err
-		}
-
-		resourceState, err := testAccPrimaryInstanceState(s, resourceName)
-		if err != nil {
-			return err
-		}
-
-		target := strings.TrimSpace(resourceState.Attributes[resourceAttr])
-		if target == "" {
-			return fmt.Errorf("%s.%s is empty", resourceName, resourceAttr)
-		}
-
-		count, err := testAccNestedListCount(dataState, listAttr)
-		if err != nil {
-			return fmt.Errorf("%s.%s: %w", dataSourceName, listAttr, err)
-		}
-
-		for i := 0; i < count; i++ {
-			key := fmt.Sprintf("%s.%d.%s", listAttr, i, nestedAttr)
-			if dataState.Attributes[key] == target {
-				return nil
-			}
-		}
-
-		return fmt.Errorf("%s.%s: no %s value matched %s.%s (%q)", dataSourceName, listAttr, nestedAttr, resourceName, resourceAttr, target)
 	}
 }
 

@@ -227,9 +227,6 @@ type Client struct {
 	// Images provides image operations.
 	Images *ImageService
 
-	// Flavors provides flavor operations.
-	Flavors *FlavorService
-
 	// SSHKeys provides SSH key operations.
 	SSHKeys *SSHKeyService
 
@@ -321,7 +318,6 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 	c.FloatingIPs = &FloatingIPService{client: c}
 	c.SecurityGroups = &SecurityGroupService{client: c}
 	c.Images = &ImageService{client: c}
-	c.Flavors = &FlavorService{client: c}
 	c.SSHKeys = &SSHKeyService{client: c}
 	c.Projects = &ProjectService{client: c}
 	c.Volumes = &VolumeService{client: c}

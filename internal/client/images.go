@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // ImageService handles image operations.
@@ -42,23 +41,6 @@ func (s *ImageService) Get(ctx context.Context, imageID string) (*Image, error) 
 
 	for _, image := range images {
 		if image.ID == imageID {
-			return &image, nil
-		}
-	}
-
-	return nil, nil
-}
-
-// FindByName finds an image by name (partial match, case-insensitive).
-func (s *ImageService) FindByName(ctx context.Context, name string) (*Image, error) {
-	images, err := s.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	nameLower := strings.ToLower(name)
-	for _, image := range images {
-		if strings.Contains(strings.ToLower(image.Name), nameLower) {
 			return &image, nil
 		}
 	}

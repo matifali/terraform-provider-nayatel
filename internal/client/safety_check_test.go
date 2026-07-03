@@ -18,23 +18,16 @@ func TestSafetyChecks(t *testing.T) {
 	}
 
 	username := os.Getenv("NAYATEL_USERNAME")
-	token := os.Getenv("NAYATEL_TOKEN")
 	password := os.Getenv("NAYATEL_PASSWORD")
 
-	if username == "" || (token == "" && password == "") {
-		t.Skip("Set NAYATEL_USERNAME with NAYATEL_TOKEN or NAYATEL_PASSWORD to run this test")
+	if username == "" || password == "" {
+		t.Skip("Set NAYATEL_USERNAME and NAYATEL_PASSWORD to run this test")
 	}
 
 	ctx := context.Background()
-	var c *Client
-	if token != "" {
-		c = NewClient(username, token)
-	} else {
-		var err error
-		c, err = NewClientWithLogin(ctx, username, password)
-		if err != nil {
-			t.Fatalf("NewClientWithLogin failed: %s", err)
-		}
+	c, err := NewClientWithLogin(ctx, username, password)
+	if err != nil {
+		t.Fatalf("NewClientWithLogin failed: %s", err)
 	}
 
 	fmt.Println("")

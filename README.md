@@ -37,31 +37,19 @@ provider_installation {
 
 ## Authentication
 
-The provider supports two non-interactive credential modes. Environment variables are recommended so secrets do not need to be stored in Terraform configuration.
-
-### Username and password
+The provider authenticates with your Nayatel Cloud username and password. Environment variables are recommended so secrets do not need to be stored in Terraform configuration.
 
 ```shell
 export NAYATEL_USERNAME="your-username"
 export NAYATEL_PASSWORD="your-password"
 ```
 
-Password authentication uses Nayatel's CSRF/session-protected form login and may cache a JWT under your user config directory (for example, `~/.config/nayatel`) with owner-only file permissions. Delete the cache file to force a fresh login.
-
-### Username and token
-
-```shell
-export NAYATEL_USERNAME="your-username"
-export NAYATEL_TOKEN="your-jwt-token"
-```
-
-`NAYATEL_USERNAME` is still required when using `NAYATEL_TOKEN`. If both token and password are configured, the token is used.
+Authentication uses Nayatel's CSRF/session-protected form login and may cache a JWT under your user config directory (for example, `~/.config/nayatel`) with owner-only file permissions. Delete the cache file to force a fresh login.
 
 Optional authentication-related settings:
 
 ```shell
 export NAYATEL_PROJECT_ID="your-project-id"   # optional default project
-export NAYATEL_BASE_URL="https://cloud.nayatel.com/api" # optional trusted Nayatel-compatible API
 ```
 
 Provider block arguments are also supported, but environment variables are preferred for secrets:
@@ -70,8 +58,6 @@ Provider block arguments are also supported, but environment variables are prefe
 provider "nayatel" {
   username = "your-username"
   password = "your-password"
-  # OR, with username still set:
-  # token = "your-jwt-token"
 }
 ```
 
@@ -194,9 +180,19 @@ Attaches a security group to an instance.
 
 ## Data Sources
 
+### nayatel_image
+
+Looks up a single OS image by name. Matching is case-insensitive and falls back to a substring match, so `Ubuntu 24.04` matches `Ubuntu 24.04 LTS (Noble Numbat)`. Fails if no image or more than one image matches.
+
+```hcl
+data "nayatel_image" "ubuntu" {
+  name = "Ubuntu 24.04"
+}
+```
+
 ### nayatel_images
 
-Lists available OS images.
+Lists all available OS images. Use this to discover image names for the `nayatel_image` lookup.
 
 ```hcl
 data "nayatel_images" "available" {}
@@ -206,36 +202,14 @@ output "images" {
 }
 ```
 
-### nayatel_flavors
+### nayatel_ssh_key
 
-Lists available instance flavors (CPU/RAM/Disk combinations).
-
-```hcl
-data "nayatel_flavors" "available" {}
-```
-
-### nayatel_ssh_keys
-
-Lists available SSH keys.
+Looks up an existing SSH key by name, e.g. one registered via the portal.
 
 ```hcl
-data "nayatel_ssh_keys" "available" {}
-```
-
-### nayatel_networks
-
-Lists available networks.
-
-```hcl
-data "nayatel_networks" "available" {}
-```
-
-### nayatel_security_groups
-
-Lists available security groups.
-
-```hcl
-data "nayatel_security_groups" "available" {}
+data "nayatel_ssh_key" "personal" {
+  name = "personal"
+}
 ```
 
 ## Building The Provider

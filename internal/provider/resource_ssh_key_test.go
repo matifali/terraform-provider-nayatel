@@ -24,7 +24,7 @@ func TestAccSSHKeyResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_ssh_key.test", "id", name),
 					resource.TestCheckResourceAttr("nayatel_ssh_key.test", "name", name),
 					resource.TestCheckResourceAttrSet("nayatel_ssh_key.test", "fingerprint"),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_ssh_keys.all", "keys", "name", "nayatel_ssh_key.test", "name"),
+					resource.TestCheckResourceAttrPair("data.nayatel_ssh_key.test", "fingerprint", "nayatel_ssh_key.test", "fingerprint"),
 				),
 			},
 			{
@@ -46,8 +46,8 @@ resource "nayatel_ssh_key" "test" {
   public_key = %q
 }
 
-data "nayatel_ssh_keys" "all" {
-  depends_on = [nayatel_ssh_key.test]
+data "nayatel_ssh_key" "test" {
+  name = nayatel_ssh_key.test.name
 }
 `, name, publicKey)
 }

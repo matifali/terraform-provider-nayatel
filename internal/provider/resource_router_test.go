@@ -215,7 +215,6 @@ func TestAccRouterResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_router.test", "name", name),
 					resource.TestCheckResourceAttrSet("nayatel_router.test", "status"),
 					resource.TestCheckResourceAttrPair("nayatel_router.test", "subnet_id", "nayatel_network.test", "subnet_id"),
-					testAccCheckNestedListContainsResourceAttr("data.nayatel_routers.all", "routers", "id", "nayatel_router.test", "id"),
 				),
 			},
 			{
@@ -240,10 +239,6 @@ resource "nayatel_router" "test" {
   name                            = %q
   subnet_id                       = nayatel_network.test.subnet_id
   force_delete_network_on_destroy = true
-}
-
-data "nayatel_routers" "all" {
-  depends_on = [nayatel_router.test]
 }
 `, bandwidth, name)
 }

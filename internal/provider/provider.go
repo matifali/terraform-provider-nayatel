@@ -33,9 +33,7 @@ type NayatelProvider struct {
 type NayatelProviderModel struct {
 	Username  types.String `tfsdk:"username"`
 	Password  types.String `tfsdk:"password"`
-	Token     types.String `tfsdk:"token"`
 	ProjectID types.String `tfsdk:"project_id"`
-	BaseURL   types.String `tfsdk:"base_url"`
 }
 
 func (p *NayatelProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -48,25 +46,16 @@ func (p *NayatelProvider) Schema(ctx context.Context, req provider.SchemaRequest
 		MarkdownDescription: "The Nayatel provider is a community-maintained, unofficial provider for interacting with Nayatel Cloud resources.",
 		Attributes: map[string]schema.Attribute{
 			"username": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud username. Required with either `password` or `token`; can also be set via the `NAYATEL_USERNAME` environment variable.",
+				MarkdownDescription: "Nayatel Cloud username. Required with `password`; can also be set via the `NAYATEL_USERNAME` environment variable.",
 				Optional:            true,
 			},
 			"password": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud password for non-interactive CSRF-protected form login. Optional when `token` is set; can also be set via the `NAYATEL_PASSWORD` environment variable.",
-				Optional:            true,
-				Sensitive:           true,
-			},
-			"token": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud JWT token. Can also be set via the `NAYATEL_TOKEN` environment variable. When set, it is used instead of `password`, but `username`/`NAYATEL_USERNAME` is still required.",
+				MarkdownDescription: "Nayatel Cloud password for non-interactive CSRF-protected form login. Can also be set via the `NAYATEL_PASSWORD` environment variable.",
 				Optional:            true,
 				Sensitive:           true,
 			},
 			"project_id": schema.StringAttribute{
 				MarkdownDescription: "Default project ID. Can also be set via `NAYATEL_PROJECT_ID` environment variable.",
-				Optional:            true,
-			},
-			"base_url": schema.StringAttribute{
-				MarkdownDescription: "Nayatel Cloud API base URL. Can also be set via the `NAYATEL_BASE_URL` environment variable. Defaults to `https://cloud.nayatel.com/api`. Only point this at a trusted Nayatel-compatible HTTPS API because credentials and CSRF/session requests are sent there.",
 				Optional:            true,
 			},
 		},
@@ -79,20 +68,12 @@ type authValidationDiagnostic struct {
 	detail    string
 }
 
-func validateAuthenticationConfig(username, password, token string) *authValidationDiagnostic {
-	missingCredentialsDetail := "The provider requires `username` plus either `token` or `password`. " +
+func validateAuthenticationConfig(username, password string) *authValidationDiagnostic {
+	missingCredentialsDetail := "The provider requires `username` and `password`. " +
 		"Set the credentials in the provider configuration or use environment variables " +
-		"(`NAYATEL_USERNAME` with `NAYATEL_TOKEN` or `NAYATEL_PASSWORD`)."
+		"(`NAYATEL_USERNAME` and `NAYATEL_PASSWORD`)."
 
 	if username == "" {
-		if token != "" {
-			return &authValidationDiagnostic{
-				attribute: path.Root("username"),
-				summary:   "Missing Username",
-				detail:    "Username is required even when using a token. Set the username in the provider configuration or use the `NAYATEL_USERNAME` environment variable.",
-			}
-		}
-
 		return &authValidationDiagnostic{
 			attribute: path.Root("username"),
 			summary:   "Missing Nayatel API Credentials",
@@ -100,7 +81,7 @@ func validateAuthenticationConfig(username, password, token string) *authValidat
 		}
 	}
 
-	if token == "" && password == "" {
+	if password == "" {
 		return &authValidationDiagnostic{
 			attribute: path.Root("password"),
 			summary:   "Missing Nayatel API Credentials",
@@ -123,12 +104,10 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 	// Get values from config or environment
 	username := getConfigOrEnv(config.Username, "NAYATEL_USERNAME")
 	password := getConfigOrEnv(config.Password, "NAYATEL_PASSWORD")
-	token := getConfigOrEnv(config.Token, "NAYATEL_TOKEN")
 	projectID := getConfigOrEnv(config.ProjectID, "NAYATEL_PROJECT_ID")
-	baseURL := getConfigOrEnv(config.BaseURL, "NAYATEL_BASE_URL")
 
 	// Validate configuration
-	if authDiag := validateAuthenticationConfig(username, password, token); authDiag != nil {
+	if authDiag := validateAuthenticationConfig(username, password); authDiag != nil {
 		resp.Diagnostics.AddAttributeError(
 			authDiag.attribute,
 			authDiag.summary,
@@ -139,33 +118,20 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	// Build client options
 	var opts []client.ClientOption
-	if baseURL != "" {
-		opts = append(opts, client.WithBaseURL(baseURL))
-	}
 	if projectID != "" {
 		opts = append(opts, client.WithProjectID(projectID))
 	}
 
-	// Create client
-	var nayatelClient *client.Client
-	var err error
-
-	if token != "" {
-		// Use provided token
-		tflog.Debug(ctx, "Using provided JWT token for authentication")
-		nayatelClient = client.NewClient(username, token, opts...)
-	} else {
-		// Login with username/password
-		tflog.Debug(ctx, "Authenticating with username/password")
-		nayatelClient, err = client.NewClientWithLogin(ctx, username, password, opts...)
-		if err != nil {
-			resp.Diagnostics.AddError(
-				"Unable to Create Nayatel API Client",
-				"An unexpected error occurred when creating the Nayatel API client. "+
-					"Error: "+err.Error(),
-			)
-			return
-		}
+	// Login with username/password
+	tflog.Debug(ctx, "Authenticating with username/password")
+	nayatelClient, err := client.NewClientWithLogin(ctx, username, password, opts...)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Create Nayatel API Client",
+			"An unexpected error occurred when creating the Nayatel API client. "+
+				"Error: "+err.Error(),
+		)
+		return
 	}
 
 	tflog.Info(ctx, "Configured Nayatel client", map[string]any{"username": username})
@@ -194,13 +160,8 @@ func (p *NayatelProvider) Resources(ctx context.Context) []func() resource.Resou
 func (p *NayatelProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewImagesDataSource,
-		NewFlavorsDataSource,
-		NewSSHKeysDataSource,
-		NewNetworksDataSource,
-		NewSecurityGroupsDataSource,
-		NewRoutersDataSource,
-		NewFloatingIPsDataSource,
-		NewVolumesDataSource,
+		NewImageDataSource,
+		NewSSHKeyDataSource,
 	}
 }
 
