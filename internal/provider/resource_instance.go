@@ -59,15 +59,9 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Manages a Nayatel Cloud instance (virtual machine).
 
-## Import
+~> After import, ensure your configuration matches the instance's actual settings (` + "`cpu`, `ram`, `disk`, `image_id`, `network_id`, `ssh_fingerprint`" + `) to avoid unexpected replacements.
 
-Instances can be imported using the instance ID. The configuration must match the actual instance settings:
-
-` + "```" + `
-terraform import nayatel_instance.example <instance_id>
-` + "```" + `
-
-**Note:** After import, ensure your configuration matches the instance's actual settings (cpu, ram, disk, image_id, network_id, ssh_fingerprint) to avoid unexpected replacements.`,
+!> Creating an instance incurs charges on your Nayatel Cloud account. The provider previews the cost and verifies your balance before provisioning, and aborts if either check fails.`,
 
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{

@@ -44,32 +44,7 @@ func (r *SSHKeyResource) Schema(ctx context.Context, req resource.SchemaRequest,
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Manages an SSH key in Nayatel Cloud.
 
-## Example Usage
-
-` + "```hcl" + `
-resource "nayatel_ssh_key" "main" {
-  name       = "my-key"
-  public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."
-}
-
-resource "nayatel_instance" "web" {
-  name            = "my-instance"
-  image_id        = "7acb1e25-9ce1-4b6b-8d6e-38e7dbd20919"
-  cpu             = 2
-  ram             = 2
-  disk            = 20
-  network_id      = nayatel_network.main.id
-  ssh_fingerprint = nayatel_ssh_key.main.fingerprint
-}
-` + "```" + `
-
-## Import
-
-SSH keys can be imported using the key name:
-
-` + "```" + `
-terraform import nayatel_ssh_key.main my-key
-` + "```",
+-> Use the ` + "`fingerprint`" + ` attribute to reference the key from ` + "`nayatel_instance.ssh_fingerprint`" + `.`,
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,

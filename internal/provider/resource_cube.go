@@ -60,15 +60,11 @@ func (r *CubeResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `Manages a Nayatel Cube — a managed container (LXD-backed), distinct from IaaS virtual machines.
 
-The CPU/RAM pair must be one of the combinations offered by Nayatel (e.g. 2/2, 2/4, 4/8). The provider validates this before creating.
+-> The CPU/RAM pair must be one of the combinations offered by Nayatel (e.g. 2/2, 2/4, 4/8, 4/16). The provider validates the pair against the live catalog before creating and lists the allowed combinations on mismatch. Root disk size is independent of the pair.
 
-## Import
+~> All attributes force replacement. Changing any of them destroys the cube — including its data — and provisions a new one.
 
-Cubes can be imported using the cube instance name (` + "`{name}-{username}`" + `):
-
-` + "```" + `
-terraform import nayatel_cube.example <cube_instance_name>
-` + "```" + ``,
+!> Creating a cube incurs charges on your Nayatel Cloud account. The provider previews the cost and verifies your balance before provisioning, and aborts if either check fails.`,
 
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{

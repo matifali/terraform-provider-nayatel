@@ -1,0 +1,32 @@
+---
+page_title: "{{.ProviderShortName}} Provider"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.ProviderShortName}} Provider
+
+{{ .Description | trimspace }}
+
+~> This is a community-maintained provider and is not affiliated with or supported by Nayatel. Resources created through it are billed to your Nayatel Cloud account.
+
+## Example Usage
+
+{{ if .HasExample -}}
+{{tffile .ExampleFile }}
+{{- end }}
+
+## Authentication
+
+The provider needs a `username` plus either a `password` or a JWT `token`. Credentials can be set in the provider block or via environment variables:
+
+```shell
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_PASSWORD="your-password"
+# or, instead of a password:
+export NAYATEL_TOKEN="your-jwt-token"
+```
+
+-> When authenticating with a password, the obtained session token is cached under `~/.config/nayatel/` and reused until it expires, so repeated Terraform runs do not re-authenticate.
+
+{{ .SchemaMarkdown | trimspace }}
