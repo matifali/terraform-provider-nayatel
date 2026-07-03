@@ -30,7 +30,7 @@ func NewRouterResource() resource.Resource {
 }
 
 type RouterResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type RouterResourceModel struct {
@@ -60,10 +60,13 @@ The router is automatically connected to the Provider Network (external network)
 				},
 			},
 			"name": schema.StringAttribute{
-				MarkdownDescription: "Name of the router",
+				MarkdownDescription: "Name of the router. Changing this forces a new router.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString("default"),
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"subnet_id": schema.StringAttribute{
 				MarkdownDescription: "ID of the subnet to attach as interface (connects your private network to the router)",
@@ -86,18 +89,6 @@ The router is automatically connected to the Provider Network (external network)
 	}
 }
 
-func (r *RouterResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	r.client = client
-}
-
 func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data RouterResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -116,6 +107,20 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	tflog.Debug(ctx, "Using Provider Network", map[string]any{"network_id": providerNetworkID})
 
+	// Snapshot existing routers first: the create API returns only
+	// status/message, so the new router is identified by diffing the list.
+	// Matching by name alone would adopt a pre-existing router with the
+	// same name (the default name is "default").
+	before, err := r.client.Routers.List(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers before creation: %s", err))
+		return
+	}
+	existing := make(map[string]struct{}, len(before))
+	for _, rt := range before {
+		existing[rt.ID] = struct{}{}
+	}
+
 	createReq := &client.RouterCreateRequest{
 		NetworkID:  providerNetworkID,
 		RouterName: data.Name.ValueString(),
@@ -127,29 +132,47 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	// The API only returns status/message, so fetch router list to find the created router
-	routers, err := r.client.Routers.List(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers after creation: %s", err))
-		return
-	}
-
-	if len(routers) == 0 {
-		resp.Diagnostics.AddError("Client Error", "No routers found after creation")
-		return
-	}
-
-	// Find the router by name or take the last one
+	// The new router can take a moment to appear in the list.
 	var router *client.Router
-	for i := range routers {
-		if routers[i].Name == data.Name.ValueString() {
-			router = &routers[i]
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+
+		routers, err := r.client.Routers.List(ctx)
+		if err != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers after creation: %s", err))
+			return
+		}
+
+		var created []*client.Router
+		for i := range routers {
+			if _, ok := existing[routers[i].ID]; !ok {
+				created = append(created, &routers[i])
+			}
+		}
+
+		if len(created) == 1 {
+			router = created[0]
+			break
+		}
+		if len(created) > 1 {
+			// Concurrent creation; prefer the requested name among the new routers.
+			for _, cand := range created {
+				if cand.Name == data.Name.ValueString() {
+					router = cand
+					break
+				}
+			}
+			if router == nil {
+				router = created[len(created)-1]
+			}
 			break
 		}
 	}
 	if router == nil {
-		// Take the last router in the list (most recent)
-		router = &routers[len(routers)-1]
+		resp.Diagnostics.AddError("Client Error", "Unable to identify the created router: no new router appeared in the router list")
+		return
 	}
 
 	data.ID = types.StringValue(router.ID)

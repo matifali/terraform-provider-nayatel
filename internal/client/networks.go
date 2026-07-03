@@ -24,20 +24,7 @@ func (s *NetworkService) List(ctx context.Context) ([]Network, error) {
 		return nil, err
 	}
 
-	// Response could be array or object with networks field
-	var networks []Network
-	if err := json.Unmarshal(resp, &networks); err != nil {
-		// Try as object with networks field
-		var result struct {
-			Networks []Network `json:"networks"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		networks = result.Networks
-	}
-
-	return networks, nil
+	return decodeList[Network](resp, "networks")
 }
 
 // Create creates a new network.

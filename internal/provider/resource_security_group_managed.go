@@ -29,7 +29,7 @@ func NewSecurityGroupResource() resource.Resource {
 }
 
 type SecurityGroupResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type SecurityGroupRuleModel struct {
@@ -144,18 +144,6 @@ resource "nayatel_security_group" "web" {
 			},
 		},
 	}
-}
-
-func (r *SecurityGroupResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	r.client = client
 }
 
 func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

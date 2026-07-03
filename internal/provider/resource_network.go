@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -28,7 +29,7 @@ func NewNetworkResource() resource.Resource {
 }
 
 type NetworkResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type NetworkResourceModel struct {
@@ -66,10 +67,13 @@ func (r *NetworkResource) Schema(ctx context.Context, req resource.SchemaRequest
 				MarkdownDescription: "Network status",
 			},
 			"bandwidth_limit": schema.Int64Attribute{
-				MarkdownDescription: "Bandwidth limit (1 = 25-250 Mbps). Default is 1.",
+				MarkdownDescription: "Bandwidth limit (1 = 25-250 Mbps). Default is 1. Changing this forces a new network.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(1),
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
 			},
 			"subnet_id": schema.StringAttribute{
 				Computed:            true,
@@ -85,23 +89,6 @@ func (r *NetworkResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 		},
 	}
-}
-
-func (r *NetworkResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = client
 }
 
 func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -156,6 +143,12 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		data.SubnetCIDR = types.StringValue(network.SubnetCIDR)
 	} else {
 		data.SubnetCIDR = types.StringValue("")
+	}
+
+	// A failed cost preview at plan time leaves monthly_cost unknown; state
+	// must not contain unknown values after apply.
+	if data.MonthlyCost.IsUnknown() {
+		data.MonthlyCost = types.Float64Null()
 	}
 
 	tflog.Trace(ctx, "Created network", map[string]any{"id": data.ID.ValueString()})
@@ -299,15 +292,7 @@ func (r *NetworkResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if preview != nil {
-		var cost float64
-		// Check nested data.charges.total_amount (Nayatel network API format)
-		if data, ok := preview["data"].(map[string]interface{}); ok {
-			if charges, ok := data["charges"].(map[string]interface{}); ok {
-				if c, ok := charges["total_amount"].(float64); ok {
-					cost = c
-				}
-			}
-		}
+		cost := client.ExtractCostFromPreview(preview)
 		if cost > 0 {
 			plan.MonthlyCost = types.Float64Value(cost)
 			resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)

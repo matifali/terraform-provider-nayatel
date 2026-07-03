@@ -34,7 +34,7 @@ resource "nayatel_router" "main" {
 ### Optional
 
 - `force_delete_network_on_destroy` (Boolean) When true, if Nayatel still reports an active router interface after interface-removal retries, delete the network that owns `subnet_id` before retrying router deletion. Only enable this for disposable networks exclusively managed by this Terraform configuration.
-- `name` (String) Name of the router
+- `name` (String) Name of the router. Changing this forces a new router.
 
 ### Read-Only
 

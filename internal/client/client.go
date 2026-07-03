@@ -209,6 +209,17 @@ type Client struct {
 	// csrfToken is the cached CSRF token for the current HTTP session.
 	csrfToken string
 
+	// authMu protects Token and reauth across Terraform's parallel operations.
+	authMu sync.Mutex
+
+	// reauth re-authenticates with the stored credentials and refreshes Token.
+	// Set by NewClientWithLogin; nil when the client was built from a raw token.
+	// Called with authMu held.
+	reauth func(ctx context.Context) error
+
+	// projectMu protects ProjectID lazy discovery across Terraform's parallel operations.
+	projectMu sync.Mutex
+
 	// Instances provides instance operations.
 	Instances *InstanceService
 
@@ -337,14 +348,26 @@ func NewClientWithLogin(ctx context.Context, username, password string, opts ...
 		cachedToken = ""
 	}
 
+	c := NewClient(username, cachedToken, opts...)
+	c.reauth = func(ctx context.Context) error {
+		if cachePath, err := getTokenCachePath(username); err == nil {
+			os.Remove(cachePath)
+		}
+		token, err := authenticate(ctx, c.HTTPClient, c.BaseURL, username, password)
+		if err != nil {
+			return fmt.Errorf("re-authentication failed: %w", err)
+		}
+		_ = saveCachedToken(username, token)
+		c.Token = token
+		return nil
+	}
+
 	if cachedToken != "" {
-		// Use cached token
-		return NewClient(username, cachedToken, opts...), nil
+		return c, nil
 	}
 
 	// No valid cached token, need to authenticate with the same HTTP client/jar
 	// that will be used for subsequent API requests.
-	c := NewClient(username, "", opts...)
 	token, err := authenticate(ctx, c.HTTPClient, c.BaseURL, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("authentication failed: %w", err)
@@ -355,6 +378,28 @@ func NewClientWithLogin(ctx context.Context, username, password string, opts ...
 
 	c.Token = token
 	return c, nil
+}
+
+// bearerToken returns the current auth token under authMu.
+func (c *Client) bearerToken() string {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	return c.Token
+}
+
+// refreshAuth re-authenticates after a 401. usedToken is the token the failed
+// request was sent with; if another goroutine already refreshed the token,
+// the re-login is skipped.
+func (c *Client) refreshAuth(ctx context.Context, usedToken string) error {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.reauth == nil {
+		return fmt.Errorf("re-authentication not available for token-based clients")
+	}
+	if c.Token != usedToken && isTokenValid(c.Token) {
+		return nil
+	}
+	return c.reauth(ctx)
 }
 
 // Request makes an HTTP request to the API.
@@ -374,6 +419,7 @@ func (c *Client) Request(ctx context.Context, method, endpoint string, body inte
 		return nil, fmt.Errorf("failed to fetch CSRF token: %w", err)
 	}
 
+	var usedToken string
 	doRequest := func() ([]byte, int, error) {
 		var bodyReader io.Reader
 		if bodyBytes != nil {
@@ -385,7 +431,8 @@ func (c *Client) Request(ctx context.Context, method, endpoint string, body inte
 			return nil, 0, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+		usedToken = c.bearerToken()
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", usedToken))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-CSRF-Token", c.currentCSRFToken())
@@ -412,6 +459,18 @@ func (c *Client) Request(ctx context.Context, method, endpoint string, body inte
 	if shouldRetryCSRF(statusCode, respBody) {
 		if err := c.ensureCSRFToken(ctx, true); err != nil {
 			return nil, fmt.Errorf("failed to refresh CSRF token: %w", err)
+		}
+
+		respBody, statusCode, err = doRequest()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// A 401 means the token expired mid-session; re-authenticate once and retry.
+	if statusCode == http.StatusUnauthorized && c.reauth != nil {
+		if err := c.refreshAuth(ctx, usedToken); err != nil {
+			return nil, fmt.Errorf("authentication expired and %w", err)
 		}
 
 		respBody, statusCode, err = doRequest()
@@ -560,6 +619,9 @@ func (c *Client) Delete(ctx context.Context, endpoint string, body interface{}) 
 
 // GetProjectID returns the project ID, fetching it if not set.
 func (c *Client) GetProjectID(ctx context.Context) (string, error) {
+	c.projectMu.Lock()
+	defer c.projectMu.Unlock()
+
 	if c.ProjectID != "" {
 		return c.ProjectID, nil
 	}
@@ -592,14 +654,6 @@ func IsNotFound(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 404
-	}
-	return false
-}
-
-// IsUnauthorized returns true if the error is a 401 unauthorized error.
-func IsUnauthorized(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
-		return apiErr.StatusCode == 401
 	}
 	return false
 }
@@ -661,14 +715,12 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 	}
 
 	maxChecks := 3
-	var lastBalance *BalanceInfo
 
 	for check := 1; check <= maxChecks; check++ {
 		balance, err := c.GetBalance(ctx)
 		if err != nil {
 			return fmt.Errorf("unable to verify account balance for %s (aborting to protect against unwanted charges): %w", resourceType, err)
 		}
-		lastBalance = balance
 
 		effectiveBalance := balance.Balance + balance.AvailableCredit
 		if effectiveBalance >= requiredAmount {
@@ -687,7 +739,6 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 			"Please verify at https://cloud.nayatel.com/billing", resourceType, requiredAmount, effectiveBalance)
 	}
 
-	_ = lastBalance
 	return nil
 }
 

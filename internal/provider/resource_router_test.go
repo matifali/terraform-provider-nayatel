@@ -70,7 +70,8 @@ func TestRouterDeleteRetriesInterfaceDetachAfterActiveInterfaceDelete(t *testing
 	defer server.Close()
 
 	c := client.NewClient("test-user", "api-token", client.WithBaseURL(server.URL+"/api"), client.WithHTTPClient(server.Client()))
-	r := &RouterResource{client: c}
+	r := &RouterResource{}
+	r.client = c
 	if err := r.deleteRouterWithInterfaceRetryBackoffs(ctx, "router-123", "subnet-abc", false, []time.Duration{0, 0}); err != nil {
 		t.Fatalf("deleteRouterWithInterfaceRetryBackoffs returned error: %v", err)
 	}
@@ -114,7 +115,8 @@ func TestRouterDeleteDoesNotDeleteSubnetNetworkWithoutOptIn(t *testing.T) {
 	defer server.Close()
 
 	c := client.NewClient("test-user", "api-token", client.WithBaseURL(server.URL+"/api"), client.WithHTTPClient(server.Client()), client.WithProjectID("project-123"))
-	r := &RouterResource{client: c}
+	r := &RouterResource{}
+	r.client = c
 	if err := r.deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks(ctx, "router-123", "subnet-abc", false, []time.Duration{0}, []time.Duration{0}); err == nil {
 		t.Fatalf("deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks returned nil error")
 	}
@@ -178,7 +180,8 @@ func TestRouterDeleteFallsBackToDeletingSubnetNetwork(t *testing.T) {
 	defer server.Close()
 
 	c := client.NewClient("test-user", "api-token", client.WithBaseURL(server.URL+"/api"), client.WithHTTPClient(server.Client()), client.WithProjectID("project-123"))
-	r := &RouterResource{client: c}
+	r := &RouterResource{}
+	r.client = c
 	if err := r.deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks(ctx, "router-123", "subnet-abc", true, []time.Duration{0, 0}, []time.Duration{0}); err != nil {
 		t.Fatalf("deleteRouterWithInterfaceRetryBackoffsAndNetworkFallbacks returned error: %v", err)
 	}

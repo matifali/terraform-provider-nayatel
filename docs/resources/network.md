@@ -27,7 +27,7 @@ output "subnet_cidr" {
 
 ### Optional
 
-- `bandwidth_limit` (Number) Bandwidth limit (1 = 25-250 Mbps). Default is 1.
+- `bandwidth_limit` (Number) Bandwidth limit (1 = 25-250 Mbps). Default is 1. Changing this forces a new network.
 
 ### Read-Only
 

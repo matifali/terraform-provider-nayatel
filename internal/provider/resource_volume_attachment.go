@@ -27,7 +27,7 @@ func NewVolumeAttachmentResource() resource.Resource {
 }
 
 type VolumeAttachmentResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type VolumeAttachmentResourceModel struct {
@@ -73,23 +73,6 @@ func (r *VolumeAttachmentResource) Schema(ctx context.Context, req resource.Sche
 			},
 		},
 	}
-}
-
-func (r *VolumeAttachmentResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = client
 }
 
 func (r *VolumeAttachmentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

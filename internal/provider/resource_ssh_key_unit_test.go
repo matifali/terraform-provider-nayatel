@@ -59,9 +59,8 @@ func testSSHKeyResourceDeleteWithListResponse(t *testing.T, deleteStatus int, li
 	}))
 	defer server.Close()
 
-	resource := &SSHKeyResource{
-		client: nayatelclient.NewClient("test-user", "api-token", nayatelclient.WithBaseURL(server.URL+"/api"), nayatelclient.WithHTTPClient(server.Client())),
-	}
+	resource := &SSHKeyResource{}
+	resource.client = nayatelclient.NewClient("test-user", "api-token", nayatelclient.WithBaseURL(server.URL+"/api"), nayatelclient.WithHTTPClient(server.Client()))
 
 	var schemaResp frameworkresource.SchemaResponse
 	resource.Schema(ctx, frameworkresource.SchemaRequest{}, &schemaResp)

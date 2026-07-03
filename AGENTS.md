@@ -8,11 +8,11 @@ This repository is a **community-maintained, unofficial Terraform provider for [
 
 Primary goals:
 - Manage Nayatel Cloud resources: instances, networks, routers, floating IPs, security groups and attachments, volumes and attachments, and SSH keys.
-- Expose data sources for images, flavors, SSH keys, networks, security groups, routers, floating IPs, and volumes.
+- Expose data sources for image lookup (`nayatel_image`, `nayatel_images`) and SSH key lookup (`nayatel_ssh_key`).
 - Preserve predictable Terraform lifecycle behavior while protecting users from unwanted charges through preview and balance checks before billable operations.
 
 Technology choices:
-- Language: **Go** (`go.mod` currently declares Go `1.25`).
+- Language: **Go** (see `go.mod` for the current Go version).
 - Provider framework: `github.com/hashicorp/terraform-plugin-framework` using protocol v6.
 - Testing: Go `testing` plus `github.com/hashicorp/terraform-plugin-testing`.
 - Linting/formatting: `golangci-lint` and `gofmt`.
@@ -48,11 +48,11 @@ Technology choices:
 
 ### Architecture notes
 
-- Provider configuration accepts `username`, `password`, and `project_id`, with environment variable fallbacks: `NAYATEL_USERNAME`, `NAYATEL_PASSWORD`, and `NAYATEL_PROJECT_ID`.
+- Provider configuration accepts `username` and `password`, with environment variable fallbacks: `NAYATEL_USERNAME` and `NAYATEL_PASSWORD`. The API base URL is fixed and the project is auto-discovered.
 - `Configure` validates credentials and creates one shared `*client.Client`, which is assigned to both `resp.ResourceData` and `resp.DataSourceData`.
 - Login uses a cached JWT when possible; cache files live under `$XDG_CONFIG_HOME/nayatel` or `~/.config/nayatel`.
 - Client requests set `Authorization: Bearer <token>` and JSON headers in `Client.Request`.
-- `Client.GetProjectID` lazily discovers the first project if no project ID is configured.
+- `Client.GetProjectID` lazily discovers the account's first project.
 - Nayatel API response shapes vary. Existing client list/preview helpers often decode multiple formats; preserve that defensive parsing when adding endpoints.
 
 ## Essential commands

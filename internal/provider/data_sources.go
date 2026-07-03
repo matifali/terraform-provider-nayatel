@@ -26,7 +26,7 @@ func NewImagesDataSource() datasource.DataSource {
 }
 
 type ImagesDataSource struct {
-	client *client.Client
+	datasourceWithClient
 }
 
 type ImagesDataSourceModel struct {
@@ -60,18 +60,6 @@ func (d *ImagesDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 	}
 }
 
-func (d *ImagesDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Data Source Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	d.client = client
-}
-
 func (d *ImagesDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var data ImagesDataSourceModel
 
@@ -102,7 +90,7 @@ func NewImageDataSource() datasource.DataSource {
 }
 
 type ImageDataSource struct {
-	client *client.Client
+	datasourceWithClient
 }
 
 type ImageDataSourceModel struct {
@@ -130,22 +118,15 @@ func (d *ImageDataSource) Schema(ctx context.Context, req datasource.SchemaReque
 	}
 }
 
-func (d *ImageDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Data Source Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	d.client = client
-}
-
 func (d *ImageDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var data ImageDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if strings.TrimSpace(data.Name.ValueString()) == "" {
+		resp.Diagnostics.AddError("Invalid Image Name", "The `name` attribute must not be empty.")
 		return
 	}
 
@@ -215,7 +196,7 @@ func NewSSHKeyDataSource() datasource.DataSource {
 }
 
 type SSHKeyDataSource struct {
-	client *client.Client
+	datasourceWithClient
 }
 
 type SSHKeyDataSourceModel struct {
@@ -241,18 +222,6 @@ func (d *SSHKeyDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 			},
 		},
 	}
-}
-
-func (d *SSHKeyDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Data Source Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	d.client = client
 }
 
 func (d *SSHKeyDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {

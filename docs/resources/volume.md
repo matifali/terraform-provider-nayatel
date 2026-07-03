@@ -30,7 +30,7 @@ resource "nayatel_volume" "data" {
 
 - `description` (String) Description of the volume
 - `image_id` (String) Image ID to create a bootable volume from
-- `name` (String) Name of the volume
+- `name` (String) Name of the volume. Changing this forces a new volume.
 - `snapshot_id` (String) Snapshot ID to create the volume from
 - `volume_type` (String) Type of the volume (e.g., ssd, hdd)
 

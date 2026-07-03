@@ -230,13 +230,7 @@ func testAccNetworkBandwidthPreviewError(t *testing.T, bandwidth int) error {
 }
 
 func testAccClientFromEnv(ctx context.Context) (*nayatelclient.Client, error) {
-	options := make([]nayatelclient.ClientOption, 0, 1)
-	if projectID := os.Getenv("NAYATEL_PROJECT_ID"); projectID != "" {
-		options = append(options, nayatelclient.WithProjectID(projectID))
-	}
-
-	username := os.Getenv("NAYATEL_USERNAME")
-	return nayatelclient.NewClientWithLogin(ctx, username, os.Getenv("NAYATEL_PASSWORD"), options...)
+	return nayatelclient.NewClientWithLogin(ctx, os.Getenv("NAYATEL_USERNAME"), os.Getenv("NAYATEL_PASSWORD"))
 }
 
 func testAccIsNetworkBandwidthAlreadyExistsError(err error) bool {

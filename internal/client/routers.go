@@ -25,18 +25,7 @@ func (s *RouterService) List(ctx context.Context) ([]Router, error) {
 		return nil, err
 	}
 
-	var routers []Router
-	if err := json.Unmarshal(resp, &routers); err != nil {
-		var result struct {
-			Routers []Router `json:"routers"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		routers = result.Routers
-	}
-
-	return routers, nil
+	return decodeList[Router](resp, "routers")
 }
 
 // Create creates a new router.

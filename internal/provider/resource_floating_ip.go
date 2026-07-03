@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -33,7 +34,7 @@ func NewFloatingIPResource() resource.Resource {
 }
 
 type FloatingIPResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type FloatingIPResourceModel struct {
@@ -107,18 +108,6 @@ resource "nayatel_floating_ip_association" "web" {
 	}
 }
 
-func (r *FloatingIPResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	r.client = client
-}
-
 func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data FloatingIPResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -149,6 +138,9 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		data.ID = types.StringValue(existingIP)
 		data.IPAddress = types.StringValue(existingIP)
 		data.Status = types.StringValue("ACTIVE")
+		if data.MonthlyCost.IsUnknown() {
+			data.MonthlyCost = types.Float64Null()
+		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
@@ -209,6 +201,12 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		data.ID = types.StringValue(fip.ID)
 		data.IPAddress = types.StringValue(ip)
 		data.Status = types.StringValue(fip.Status)
+	}
+
+	// A failed cost preview at plan time leaves monthly_cost unknown; state
+	// must not contain unknown values after apply.
+	if data.MonthlyCost.IsUnknown() {
+		data.MonthlyCost = types.Float64Null()
 	}
 
 	tflog.Info(ctx, "Floating IP allocated", map[string]any{
@@ -363,15 +361,7 @@ func (r *FloatingIPResource) ModifyPlan(ctx context.Context, req resource.Modify
 	}
 
 	if preview != nil {
-		var cost float64
-		// Check nested data.charges.total_amount (Nayatel floating IP API format)
-		if data, ok := preview["data"].(map[string]interface{}); ok {
-			if charges, ok := data["charges"].(map[string]interface{}); ok {
-				if c, ok := charges["total_amount"].(float64); ok {
-					cost = c
-				}
-			}
-		}
+		cost := client.ExtractCostFromPreview(preview)
 		if cost > 0 {
 			plan.MonthlyCost = types.Float64Value(cost)
 			resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
@@ -393,7 +383,7 @@ func NewFloatingIPAssociationResource() resource.Resource {
 }
 
 type FloatingIPAssociationResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type FloatingIPAssociationResourceModel struct {
@@ -471,18 +461,6 @@ resource "nayatel_floating_ip_association" "web" {
 			},
 		},
 	}
-}
-
-func (r *FloatingIPAssociationResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	r.client = client
 }
 
 func (r *FloatingIPAssociationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -627,5 +605,16 @@ func (r *FloatingIPAssociationResource) Delete(ctx context.Context, req resource
 
 func (r *FloatingIPAssociationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	// Import format: instance_id:floating_ip
+	instanceID, floatingIP, found := strings.Cut(req.ID, ":")
+	if !found || instanceID == "" || floatingIP == "" {
+		resp.Diagnostics.AddError(
+			"Invalid Import ID",
+			fmt.Sprintf("Expected an import ID in the form \"instance_id:floating_ip\", got %q.", req.ID),
+		)
+		return
+	}
+
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), instanceID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("floating_ip"), floatingIP)...)
 }

@@ -24,33 +24,7 @@ func (s *InstanceService) List(ctx context.Context) ([]Instance, error) {
 		return nil, err
 	}
 
-	// Try parsing as array first (new API format)
-	var instances []Instance
-	if err := json.Unmarshal(resp, &instances); err != nil {
-		// Fallback to Project object (old API format)
-		var project Project
-		if err := json.Unmarshal(resp, &project); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		return project.Instances, nil
-	}
-
-	return instances, nil
-}
-
-// Get returns an instance by ID.
-func (s *InstanceService) Get(ctx context.Context, instanceID string) (*Instance, error) {
-	resp, err := s.client.Get(ctx, fmt.Sprintf("/iaas/instance/%s/details", instanceID))
-	if err != nil {
-		return nil, err
-	}
-
-	var instance Instance
-	if err := json.Unmarshal(resp, &instance); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &instance, nil
+	return decodeList[Instance](resp, "instances")
 }
 
 // GetDiagnostics returns instance diagnostics.

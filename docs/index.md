@@ -46,5 +46,4 @@ export NAYATEL_PASSWORD="your-password"
 ### Optional
 
 - `password` (String, Sensitive) Nayatel Cloud password for non-interactive CSRF-protected form login. Can also be set via the `NAYATEL_PASSWORD` environment variable.
-- `project_id` (String) Default project ID. Can also be set via `NAYATEL_PROJECT_ID` environment variable.
 - `username` (String) Nayatel Cloud username. Required with `password`; can also be set via the `NAYATEL_USERNAME` environment variable.

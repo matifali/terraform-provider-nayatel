@@ -26,7 +26,7 @@ func NewSSHKeyResource() resource.Resource {
 }
 
 type SSHKeyResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 type SSHKeyResourceModel struct {
@@ -76,18 +76,6 @@ func (r *SSHKeyResource) Schema(ctx context.Context, req resource.SchemaRequest,
 			},
 		},
 	}
-}
-
-func (r *SSHKeyResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected Resource Configure Type", fmt.Sprintf("Expected *client.Client, got: %T.", req.ProviderData))
-		return
-	}
-	r.client = client
 }
 
 func (r *SSHKeyResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

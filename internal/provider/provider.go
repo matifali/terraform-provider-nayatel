@@ -31,9 +31,8 @@ type NayatelProvider struct {
 
 // NayatelProviderModel describes the provider data model.
 type NayatelProviderModel struct {
-	Username  types.String `tfsdk:"username"`
-	Password  types.String `tfsdk:"password"`
-	ProjectID types.String `tfsdk:"project_id"`
+	Username types.String `tfsdk:"username"`
+	Password types.String `tfsdk:"password"`
 }
 
 func (p *NayatelProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -53,10 +52,6 @@ func (p *NayatelProvider) Schema(ctx context.Context, req provider.SchemaRequest
 				MarkdownDescription: "Nayatel Cloud password for non-interactive CSRF-protected form login. Can also be set via the `NAYATEL_PASSWORD` environment variable.",
 				Optional:            true,
 				Sensitive:           true,
-			},
-			"project_id": schema.StringAttribute{
-				MarkdownDescription: "Default project ID. Can also be set via `NAYATEL_PROJECT_ID` environment variable.",
-				Optional:            true,
 			},
 		},
 	}
@@ -101,10 +96,23 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
+	// Credentials must be known at plan time; silently falling back to the
+	// environment would let plan and apply authenticate as different accounts.
+	if config.Username.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "Unknown Provider Configuration Value",
+			"`username` depends on a value that is not known until apply. Use a static value or the `NAYATEL_USERNAME` environment variable.")
+	}
+	if config.Password.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("password"), "Unknown Provider Configuration Value",
+			"`password` depends on a value that is not known until apply. Use a static value or the `NAYATEL_PASSWORD` environment variable.")
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Get values from config or environment
 	username := getConfigOrEnv(config.Username, "NAYATEL_USERNAME")
 	password := getConfigOrEnv(config.Password, "NAYATEL_PASSWORD")
-	projectID := getConfigOrEnv(config.ProjectID, "NAYATEL_PROJECT_ID")
 
 	// Validate configuration
 	if authDiag := validateAuthenticationConfig(username, password); authDiag != nil {
@@ -116,15 +124,9 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	// Build client options
-	var opts []client.ClientOption
-	if projectID != "" {
-		opts = append(opts, client.WithProjectID(projectID))
-	}
-
 	// Login with username/password
 	tflog.Debug(ctx, "Authenticating with username/password")
-	nayatelClient, err := client.NewClientWithLogin(ctx, username, password, opts...)
+	nayatelClient, err := client.NewClientWithLogin(ctx, username, password)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Nayatel API Client",

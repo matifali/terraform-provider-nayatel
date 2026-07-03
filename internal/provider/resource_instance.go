@@ -31,7 +31,7 @@ func NewInstanceResource() resource.Resource {
 
 // InstanceResource defines the resource implementation.
 type InstanceResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 // InstanceResourceModel describes the resource data model.
@@ -148,23 +148,6 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 	}
 }
 
-func (r *InstanceResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = client
-}
-
 func (r *InstanceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data InstanceResourceModel
 
@@ -237,6 +220,12 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		data.PrivateIP = types.StringValue(privateIP)
 	} else {
 		data.PrivateIP = types.StringNull()
+	}
+
+	// A failed cost preview at plan time leaves monthly_cost unknown; state
+	// must not contain unknown values after apply.
+	if data.MonthlyCost.IsUnknown() {
+		data.MonthlyCost = types.Float64Null()
 	}
 
 	tflog.Trace(ctx, "Created instance", map[string]any{"id": instance.ID})
@@ -387,21 +376,7 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 	}
 
 	if preview != nil {
-		var cost float64
-		// Check nested data.charge (Nayatel API format)
-		if data, ok := preview["data"].(map[string]interface{}); ok {
-			if c, ok := data["charge"].(float64); ok {
-				cost = c
-			}
-		}
-		// Fallback to top-level fields
-		if cost == 0 {
-			if c, ok := preview["charge"].(float64); ok {
-				cost = c
-			} else if c, ok := preview["monthly_cost"].(float64); ok {
-				cost = c
-			}
-		}
+		cost := client.ExtractCostFromPreview(preview)
 		if cost > 0 {
 			plan.MonthlyCost = types.Float64Value(cost)
 			resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)

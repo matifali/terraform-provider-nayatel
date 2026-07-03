@@ -24,20 +24,7 @@ func (s *VolumeService) List(ctx context.Context) ([]Volume, error) {
 		return nil, err
 	}
 
-	var volumes []Volume
-	if err := json.Unmarshal(resp, &volumes); err != nil {
-		// Try object with volumes field
-		var result struct {
-			Status  bool     `json:"status"`
-			Volumes []Volume `json:"volumes"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		volumes = result.Volumes
-	}
-
-	return volumes, nil
+	return decodeList[Volume](resp, "volumes")
 }
 
 // Get returns a volume by ID.

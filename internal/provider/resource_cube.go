@@ -32,7 +32,7 @@ func NewCubeResource() resource.Resource {
 
 // CubeResource defines the resource implementation.
 type CubeResource struct {
-	client *client.Client
+	resourceWithClient
 }
 
 // CubeResourceModel describes the resource data model.
@@ -162,23 +162,6 @@ func (r *CubeResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 			},
 		},
 	}
-}
-
-func (r *CubeResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = client
 }
 
 func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

@@ -24,18 +24,7 @@ func (s *FloatingIPService) List(ctx context.Context) ([]FloatingIP, error) {
 		return nil, err
 	}
 
-	var floatingIPs []FloatingIP
-	if err := json.Unmarshal(resp, &floatingIPs); err != nil {
-		var result struct {
-			FloatingIPs []FloatingIP `json:"floating_ips"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		floatingIPs = result.FloatingIPs
-	}
-
-	return floatingIPs, nil
+	return decodeList[FloatingIP](resp, "floating_ips")
 }
 
 // Allocate allocates new floating IP(s) - raw API call without safety checks.

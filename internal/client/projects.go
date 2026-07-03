@@ -19,37 +19,21 @@ func (s *ProjectService) List(ctx context.Context) ([]Project, error) {
 	}
 
 	var projects []Project
-	if err := json.Unmarshal(resp, &projects); err != nil {
-		// Try single project response
-		var project Project
-		if err := json.Unmarshal(resp, &project); err != nil {
-			// Try object with projects field
-			var result struct {
-				Projects []Project `json:"projects"`
-			}
-			if err := json.Unmarshal(resp, &result); err != nil {
-				return nil, fmt.Errorf("failed to decode response: %w", err)
-			}
-			projects = result.Projects
-		} else {
-			projects = []Project{project}
-		}
+	if err := json.Unmarshal(resp, &projects); err == nil {
+		return projects, nil
 	}
 
-	return projects, nil
-}
-
-// Get returns a project by ID.
-func (s *ProjectService) Get(ctx context.Context, projectID string) (*Project, error) {
-	resp, err := s.client.Get(ctx, fmt.Sprintf("/iaas/project/%s", projectID))
-	if err != nil {
-		return nil, err
+	if projects, err := decodeList[Project](resp, "projects"); err == nil {
+		return projects, nil
 	}
 
+	// Fall back to a single project object, but only if it actually looks
+	// like a project (an error payload would otherwise decode to an empty
+	// project and mask the failure).
 	var project Project
-	if err := json.Unmarshal(resp, &project); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(resp, &project); err == nil && project.GetID() != "" {
+		return []Project{project}, nil
 	}
 
-	return &project, nil
+	return nil, fmt.Errorf("unexpected projects response: %s", truncateForError(resp))
 }

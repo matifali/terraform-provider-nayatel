@@ -23,18 +23,7 @@ func (s *SecurityGroupService) List(ctx context.Context) ([]SecurityGroup, error
 		return nil, err
 	}
 
-	var securityGroups []SecurityGroup
-	if err := json.Unmarshal(resp, &securityGroups); err != nil {
-		var result struct {
-			SecurityGroups []SecurityGroup `json:"security_groups"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		securityGroups = result.SecurityGroups
-	}
-
-	return securityGroups, nil
+	return decodeList[SecurityGroup](resp, "security_groups")
 }
 
 // ListForInstance returns security groups attached to an instance.
@@ -44,18 +33,7 @@ func (s *SecurityGroupService) ListForInstance(ctx context.Context, instanceID s
 		return nil, err
 	}
 
-	var securityGroups []SecurityGroup
-	if err := json.Unmarshal(resp, &securityGroups); err != nil {
-		var result struct {
-			SecurityGroups []SecurityGroup `json:"security_groups"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		securityGroups = result.SecurityGroups
-	}
-
-	return securityGroups, nil
+	return decodeList[SecurityGroup](resp, "security_groups")
 }
 
 // AddToInstance adds a security group to an instance.
