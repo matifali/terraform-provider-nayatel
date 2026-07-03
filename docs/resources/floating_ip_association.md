@@ -3,30 +3,6 @@ page_title: "nayatel_floating_ip_association Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Associates a floating IP with an instance.
-  Similar to AWS's aws_eip_association resource. Use this to attach an existing
-  floating IP to an instance.
-  ~> Cost Warning: By default, release_on_destroy = false which only detaches
-  the IP (it remains allocated and you keep paying). Set release_on_destroy = true
-  to release the IP on destroy if you don't need it anymore.
-  Example Usage (with nayatel_floating_ip)
-  
-  resource "nayatel_floating_ip" "web" {
-    instance_id = nayatel_instance.bootstrap.id
-  }
-  
-  resource "nayatel_floating_ip_association" "web" {
-    floating_ip = nayatel_floating_ip.web.ip_address
-    instance_id = nayatel_instance.web.id
-  }
-  
-  Example Usage (reattach existing IP)
-  
-  # Attach an existing floating IP (e.g., from portal or previous deployment)
-  resource "nayatel_floating_ip_association" "web" {
-    floating_ip        = "101.50.85.100"
-    instance_id        = nayatel_instance.web.id
-    release_on_destroy = true  # Release IP when done
-  }
 ---
 
 # nayatel_floating_ip_association (Resource)

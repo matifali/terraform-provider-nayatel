@@ -1,16 +1,15 @@
 ---
 page_title: "nayatel_cube Resource - nayatel"
-subcategory: "Cubes"
+subcategory: "Cubes (Experimental)"
 description: |-
   Manages a Nayatel Cube — a managed container (LXD-backed), distinct from IaaS virtual machines.
-  -> The CPU/RAM pair must be one of the combinations offered by Nayatel (e.g. 2/2, 2/4, 4/8, 4/16). The provider validates the pair against the live catalog before creating and lists the allowed combinations on mismatch. Root disk size is independent of the pair.
-  ~> All attributes force replacement. Changing any of them destroys the cube — including its data — and provisions a new one.
-  !> Creating a cube incurs charges on your Nayatel Cloud account. The provider previews the cost and verifies your balance before provisioning, and aborts if either check fails.
 ---
 
 # nayatel_cube (Resource)
 
 Manages a Nayatel Cube — a managed container (LXD-backed), distinct from IaaS virtual machines.
+
+~> **Experimental / work in progress.** Cubes support is new and the underlying Nayatel API is still evolving. This resource may change in backwards-incompatible ways or be temporarily unavailable between provider releases. Pin the provider version and use with caution.
 
 -> The CPU/RAM pair must be one of the combinations offered by Nayatel (e.g. 2/2, 2/4, 4/8, 4/16). The provider validates the pair against the live catalog before creating and lists the allowed combinations on mismatch. Root disk size is independent of the pair.
 

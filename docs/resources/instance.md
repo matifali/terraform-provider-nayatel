@@ -3,8 +3,6 @@ page_title: "nayatel_instance Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Manages a Nayatel Cloud instance (virtual machine).
-  ~> After import, ensure your configuration matches the instance's actual settings (cpu, ram, disk, image_id, network_id, ssh_fingerprint) to avoid unexpected replacements.
-  !> Creating an instance incurs charges on your Nayatel Cloud account. The provider previews the cost and verifies your balance before provisioning, and aborts if either check fails.
 ---
 
 # nayatel_instance (Resource)

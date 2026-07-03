@@ -3,23 +3,6 @@ page_title: "nayatel_floating_ip Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Allocates a Nayatel Cloud floating IP.
-  This resource allocates an actual floating IP address that can be attached to instances.
-  Similar to AWS's aws_eip resource.
-  ~> Note: Due to Nayatel API limitations, an instance_id is required to allocate
-  the IP. The IP will be attached to this instance initially. Use nayatel_floating_ip_association
-  to move the IP to a different instance later.
-  Example Usage
-  
-  # Allocate a floating IP (attached to instance)
-  resource "nayatel_floating_ip" "web" {
-    instance_id = nayatel_instance.web.id
-  }
-  
-  # Later, move it to a different instance
-  resource "nayatel_floating_ip_association" "web" {
-    floating_ip = nayatel_floating_ip.web.ip_address
-    instance_id = nayatel_instance.new_web.id
-  }
 ---
 
 # nayatel_floating_ip (Resource)

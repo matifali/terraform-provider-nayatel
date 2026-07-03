@@ -3,35 +3,6 @@ page_title: "nayatel_security_group Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Manages a Nayatel Cloud security group with rules.
-  Example Usage
-  
-  resource "nayatel_security_group" "web" {
-    name        = "web-servers"
-    description = "Security group for web servers"
-  
-    rule {
-      direction   = "ingress"
-      protocol    = "tcp"
-      port_number = "80"
-      cidr        = "0.0.0.0/0"
-    }
-  
-    rule {
-      direction   = "ingress"
-      protocol    = "tcp"
-      port_number = "443"
-      cidr        = "0.0.0.0/0"
-    }
-  
-    rule {
-      direction   = "ingress"
-      protocol    = "tcp"
-      port_number = "22"
-      cidr        = "10.0.0.0/8"
-    }
-  }
-  
-  Note: Changing any rule will recreate the entire security group since the API does not support deleting individual rules.
 ---
 
 # nayatel_security_group (Resource)

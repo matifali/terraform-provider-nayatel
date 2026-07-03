@@ -3,7 +3,6 @@ page_title: "nayatel_router Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Manages a Nayatel Cloud router.
-  The router is automatically connected to the Provider Network (external network). Use subnet_id to attach your private network subnet to the router for internet connectivity.
 ---
 
 # nayatel_router (Resource)

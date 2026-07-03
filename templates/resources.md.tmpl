@@ -1,8 +1,8 @@
 ---
 page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
-subcategory: "{{ if eq .Name "nayatel_cube" }}Cubes{{ else }}IaaS{{ end }}"
+subcategory: "{{ if eq .Name "nayatel_cube" }}Cubes (Experimental){{ else }}IaaS{{ end }}"
 description: |-
-{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+{{ index (split (.Description | plainmarkdown | trimspace) "\n") 0 | prefixlines "  " }}
 ---
 
 # {{.Name}} ({{.Type}})

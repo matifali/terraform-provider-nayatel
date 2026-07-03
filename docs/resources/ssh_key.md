@@ -3,7 +3,6 @@ page_title: "nayatel_ssh_key Resource - nayatel"
 subcategory: "IaaS"
 description: |-
   Manages an SSH key in Nayatel Cloud.
-  -> Use the fingerprint attribute to reference the key from nayatel_instance.ssh_fingerprint.
 ---
 
 # nayatel_ssh_key (Resource)
