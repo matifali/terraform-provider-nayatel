@@ -135,7 +135,7 @@ For local Terraform use, build/install the provider and configure Terraform `dev
 
 - `find . -type f -name '*.sh'` currently finds no project shell scripts.
 - `make` with no target runs `fmt lint install generate`.
-- Releases are created by pushing tags matching `v*`; the release workflow expects GPG signing secrets.
+- Releases are created by pushing a signed tag matching `v*` (`git tag -s`); the release workflow expects GPG signing secrets. See `CONTRIBUTING.md`.
 
 ## Patterns
 
