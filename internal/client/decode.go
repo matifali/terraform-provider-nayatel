@@ -35,6 +35,18 @@ func decodeList[T any](resp []byte, keys ...string) ([]T, error) {
 		return items, nil
 	}
 
+	// Some Nayatel list endpoints report an empty collection as a bare
+	// {"message": "No <things> found."} object instead of an empty array
+	// under the expected key. That shape is unambiguous only when "message"
+	// is the object's sole field — anything else present (e.g. "status" or
+	// "error") keeps this an error, matching a real failure payload.
+	if raw, ok := obj["message"]; ok && len(obj) == 1 {
+		var message string
+		if err := json.Unmarshal(raw, &message); err == nil {
+			return nil, nil
+		}
+	}
+
 	return nil, fmt.Errorf("unexpected response shape (no %v field): %s", keys, truncateForError(resp))
 }
 

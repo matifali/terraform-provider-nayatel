@@ -1,3 +1,11 @@
+## 0.0.3
+
+BUG FIXES:
+
+* `nayatel_volume` decoding no longer fails against the live API's list/attachment shape: the volume identifier is read from `volume_id` when `id` is absent, `bootable` is accepted as either a JSON boolean or string, and a flat `attached_to` string is recognized as an attachment when the `attachments` array is absent
+* `nayatel_floating_ip` and the floating IP data path no longer fail to decode the project's floating IP list, which the API wraps under `project_floating_ips` rather than `floating_ips`
+* List decoding now recognizes a bare `{"message": "No <things> found."}` response as an empty list instead of an error, matching how some Nayatel endpoints report an empty collection
+
 ## 0.0.2
 
 BREAKING CHANGES:

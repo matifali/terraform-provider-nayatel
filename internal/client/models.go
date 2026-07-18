@@ -1,6 +1,11 @@
 package client
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
+)
 
 // InstanceStatus represents the status of an instance.
 type InstanceStatus string
@@ -453,6 +458,52 @@ type Volume struct {
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt        string                 `json:"created_at,omitempty"`
 	UpdatedAt        string                 `json:"updated_at,omitempty"`
+}
+
+// UnmarshalJSON decodes a Volume, tolerating shape differences observed
+// across Nayatel's volume endpoints: some identify the volume via
+// "volume_id" instead of "id", encode "bootable" as a JSON bool instead of
+// a string, and report the attached instance via a flat "attached_to"
+// string instead of an "attachments" array.
+func (v *Volume) UnmarshalJSON(data []byte) error {
+	type volumeAlias Volume
+	aux := struct {
+		*volumeAlias
+		ID         string          `json:"id"`
+		VolumeID   string          `json:"volume_id"`
+		Bootable   json.RawMessage `json:"bootable"`
+		AttachedTo string          `json:"attached_to"`
+	}{
+		volumeAlias: (*volumeAlias)(v),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	v.ID = aux.ID
+	if v.ID == "" {
+		v.ID = aux.VolumeID
+	}
+
+	if len(aux.Bootable) > 0 {
+		var asBool bool
+		if err := json.Unmarshal(aux.Bootable, &asBool); err == nil {
+			v.Bootable = strconv.FormatBool(asBool)
+		} else {
+			var asString string
+			if err := json.Unmarshal(aux.Bootable, &asString); err != nil {
+				return fmt.Errorf("failed to decode bootable field: %w", err)
+			}
+			v.Bootable = asString
+		}
+	}
+
+	if len(v.Attachments) == 0 && aux.AttachedTo != "" {
+		v.Attachments = []VolumeAttachment{{InstanceID: aux.AttachedTo}}
+	}
+
+	return nil
 }
 
 // VolumeAttachment represents an attachment of a volume to an instance.

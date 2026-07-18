@@ -24,7 +24,7 @@ func (s *FloatingIPService) List(ctx context.Context) ([]FloatingIP, error) {
 		return nil, err
 	}
 
-	return decodeList[FloatingIP](resp, "floating_ips")
+	return decodeList[FloatingIP](resp, "project_floating_ips", "floating_ips")
 }
 
 // Allocate allocates new floating IP(s) - raw API call without safety checks.

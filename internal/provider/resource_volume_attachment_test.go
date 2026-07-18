@@ -60,8 +60,9 @@ resource "nayatel_network" "test" {
 }
 
 resource "nayatel_router" "test" {
-  name      = %q
-  subnet_id = nayatel_network.test.subnet_id
+  name                            = %q
+  subnet_id                       = nayatel_network.test.subnet_id
+  force_delete_network_on_destroy = true
 }
 
 resource "nayatel_instance" "test" {

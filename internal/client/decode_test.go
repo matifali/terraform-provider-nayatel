@@ -22,6 +22,7 @@ func TestDecodeList(t *testing.T) {
 		{name: "second key", resp: `{"keys":[{"id":"a"}]}`, keys: []string{"ssh_keys", "keys"}, wantLen: 1},
 		{name: "error payload is not an empty list", resp: `{"error":"instance no longer available"}`, keys: []string{"instances"}, wantError: true},
 		{name: "status-false payload", resp: `{"status":false,"message":"invalid token"}`, keys: []string{"instances"}, wantError: true},
+		{name: "sole message field is an empty list", resp: `{"message":"No instances found."}`, keys: []string{"instances"}, wantLen: 0},
 		{name: "invalid json", resp: `not json`, keys: []string{"instances"}, wantError: true},
 	}
 

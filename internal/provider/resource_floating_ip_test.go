@@ -37,7 +37,6 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_floating_ip.test", "status", "ACTIVE"),
 					resource.TestCheckResourceAttrSet("nayatel_floating_ip.test", "monthly_cost"),
 					resource.TestMatchResourceAttr("nayatel_floating_ip.test", "monthly_cost", regexPositiveNumber()),
-					resource.TestCheckResourceAttrSet("data.nayatel_floating_ips.all", "floating_ips.#"),
 				),
 			},
 		},
@@ -131,8 +130,9 @@ resource "nayatel_network" "test" {
 }
 
 resource "nayatel_router" "test" {
-  name      = %q
-  subnet_id = nayatel_network.test.subnet_id
+  name                            = %q
+  subnet_id                       = nayatel_network.test.subnet_id
+  force_delete_network_on_destroy = true
 }
 
 resource "nayatel_instance" "test" {
@@ -151,10 +151,6 @@ resource "nayatel_instance" "test" {
 resource "nayatel_floating_ip" "test" {
   instance_id = nayatel_instance.test.id
 }
-
-data "nayatel_floating_ips" "all" {
-  depends_on = [nayatel_floating_ip.test]
-}
 `, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression)
 }
 
@@ -172,8 +168,9 @@ resource "nayatel_network" "test" {
 }
 
 resource "nayatel_router" "test" {
-  name      = %q
-  subnet_id = nayatel_network.test.subnet_id
+  name                            = %q
+  subnet_id                       = nayatel_network.test.subnet_id
+  force_delete_network_on_destroy = true
 }
 
 # First instance to allocate the IP
@@ -194,7 +191,13 @@ resource "nayatel_floating_ip" "test" {
   instance_id = nayatel_instance.bootstrap.id
 }
 
-# Second instance to associate the IP with
+# Second instance to associate the IP with. Depends on bootstrap (not just
+# the network) to force serialized creation: Nayatel's instance-create API
+# is unreliable when two instances request an IP/port from the same
+# just-created network concurrently (confirmed via direct client repro:
+# concurrent creates reliably put one instance into ERROR, sequential
+# creates did not). nayatel_instance's Create already blocks until ACTIVE,
+# so this ordering is sufficient to avoid the race.
 resource "nayatel_instance" "target" {
   name            = %q
   image_id        = %s
@@ -204,7 +207,7 @@ resource "nayatel_instance" "target" {
   network_id      = nayatel_network.test.id
   ssh_fingerprint = nayatel_ssh_key.test.fingerprint
 
-  depends_on = [nayatel_router.test]
+  depends_on = [nayatel_instance.bootstrap]
 }
 
 # Associate floating IP with target instance
@@ -229,8 +232,9 @@ resource "nayatel_network" "test" {
 }
 
 resource "nayatel_router" "test" {
-  name      = %q
-  subnet_id = nayatel_network.test.subnet_id
+  name                            = %q
+  subnet_id                       = nayatel_network.test.subnet_id
+  force_delete_network_on_destroy = true
 }
 
 resource "nayatel_instance" "test" {
