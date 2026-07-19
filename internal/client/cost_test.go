@@ -1,13 +1,12 @@
 // Copyright (c) 2026 Muhammad Atif Ali
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package client
 
 import (
 	"testing"
 )
 
-// TestExtractCostFromPreview tests cost extraction from API preview responses.
 func TestExtractCostFromPreview(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -53,6 +52,21 @@ func TestExtractCostFromPreview(t *testing.T) {
 			expected: 2500.0,
 		},
 		{
+			// total_amount wins as soon as the key is present, even at 0;
+			// there is no fall-through to other cost fields.
+			name: "zero total_amount is returned, not skipped",
+			preview: map[string]interface{}{
+				"status": true,
+				"data": map[string]interface{}{
+					"charges": map[string]interface{}{
+						"total_amount": 0.0,
+					},
+					"charge": 4438.0,
+				},
+			},
+			expected: 0.0,
+		},
+		{
 			name: "no cost field",
 			preview: map[string]interface{}{
 				"status": true,
@@ -68,45 +82,10 @@ func TestExtractCostFromPreview(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cost := extractCostFromPreview(tt.preview)
+			cost := ExtractCostFromPreview(tt.preview)
 			if cost != tt.expected {
-				t.Errorf("extractCostFromPreview() = %v, want %v", cost, tt.expected)
+				t.Errorf("ExtractCostFromPreview() = %v, want %v", cost, tt.expected)
 			}
 		})
 	}
-}
-
-// extractCostFromPreview extracts the cost from various API response formats.
-func extractCostFromPreview(preview map[string]interface{}) float64 {
-	if preview == nil {
-		return 0.0
-	}
-
-	var cost float64
-
-	// Check nested data.charges.total_amount (Nayatel floating_ip/network API format)
-	if data, ok := preview["data"].(map[string]interface{}); ok {
-		if charges, ok := data["charges"].(map[string]interface{}); ok {
-			if c, ok := charges["total_amount"].(float64); ok {
-				cost = c
-			}
-		}
-		// Check data.charge (Nayatel instance API format)
-		if cost == 0 {
-			if c, ok := data["charge"].(float64); ok {
-				cost = c
-			}
-		}
-	}
-
-	// Fallback to top-level fields
-	if cost == 0 {
-		if c, ok := preview["charge"].(float64); ok {
-			cost = c
-		} else if c, ok := preview["monthly_cost"].(float64); ok {
-			cost = c
-		}
-	}
-
-	return cost
 }
