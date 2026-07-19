@@ -1,7 +1,13 @@
-## Unreleased
+## 0.0.5
+
+ENHANCEMENTS:
+
+* Transient API failures (rate limiting, 5xx responses, dropped connections) on read and delete operations are now retried with exponential backoff and jitter; create operations are deliberately never retried, since the Nayatel API has no idempotency token and a retried create could produce a second billable resource
 
 BUG FIXES:
 
+* Plans no longer fail with "provider produced inconsistent final plan" when a cost preview returns a different prorated amount between plan and apply; the estimated `monthly_cost` is now surfaced as a plan-time warning and the final value is set once, after the resource is created
+* `nayatel_network` now previews its cost before creation instead of after; the API rejects a preview for a bandwidth tier that an existing network already occupies, so the post-create preview always failed for the tier the new network had just taken, leaving `monthly_cost` empty
 * `nayatel_volume_attachment` create no longer crashes the apply with "Provider returned invalid result object" when the computed `device` attribute is left unset; found by actually running the new complete example end-to-end
 * `nayatel_volume` create no longer leaves `volume_type` unknown (crashing apply the same way) when the API returns an empty value for it
 * `nayatel_volume` no longer calls a singular get-by-ID endpoint that doesn't exist on the live API (confirmed directly: it 404s with an HTML body); `Get` now scans the volume list instead, removing a wasted request on every status poll
