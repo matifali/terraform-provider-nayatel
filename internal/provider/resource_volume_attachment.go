@@ -119,7 +119,7 @@ func (r *VolumeAttachmentResource) Create(ctx context.Context, req resource.Crea
 		}
 	}
 
-	if data.Device.IsNull() {
+	if data.Device.IsNull() || data.Device.IsUnknown() {
 		data.Device = types.StringValue("")
 	}
 
@@ -140,10 +140,6 @@ func (r *VolumeAttachmentResource) Read(ctx context.Context, req resource.ReadRe
 
 	volume, err := r.client.Volumes.Get(ctx, volumeID)
 	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read volume: %s", err))
 		return
 	}

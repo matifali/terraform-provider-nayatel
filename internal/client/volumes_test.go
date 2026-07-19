@@ -302,3 +302,42 @@ func TestVolumeListDecodesBareArrayWithLiveFieldNames(t *testing.T) {
 		t.Errorf("v.IsAttached()/GetAttachedInstanceID() = %v/%q, want true/instance-1", v.IsAttached(), v.GetAttachedInstanceID())
 	}
 }
+
+// Get doesn't hit a singular volume endpoint: confirmed live (direct request
+// and network panel both showed a 404 with an HTML body, not JSON), so it
+// scans the list instead. This test asserts only the list endpoint is ever
+// called, and that a missing ID returns (nil, nil), matching the other
+// services' FindByID not-found convention.
+func TestVolumeGetScansListInsteadOfSingularEndpoint(t *testing.T) {
+	ctx := context.Background()
+
+	const listBody = `[{"volume_id":"volume-1","name":"tf-test-volume","size":10,"status":"available","bootable":false,"attached_to":"-"}]`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if csrfHandler(w, r) {
+			return
+		}
+		if r.URL.Path != "/api/iaas/user/test-user/project/project-1/volumes" || r.Method != http.MethodGet {
+			t.Errorf("unexpected request: %s %s (Get should only call the list endpoint)", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(listBody))
+	}))
+	defer server.Close()
+
+	c := newVolumeTestClient(server)
+
+	v, err := c.Volumes.Get(ctx, "volume-1")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if v.ID != "volume-1" {
+		t.Errorf("v.ID = %q, want volume-1", v.ID)
+	}
+
+	missing, err := c.Volumes.Get(ctx, "does-not-exist")
+	if err != nil || missing != nil {
+		t.Errorf("Get(\"does-not-exist\") = (%v, %v), want (nil, nil), matching the other services' FindByID not-found convention", missing, err)
+	}
+}

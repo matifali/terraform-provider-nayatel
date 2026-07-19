@@ -1,0 +1,72 @@
+---
+page_title: "Complete IaaS Example - nayatel"
+description: |-
+  A complete, runnable example that provisions a working VM: network, security group, instance, data volume, and floating IP.
+---
+
+# Complete IaaS Example
+
+This guide walks through a single, complete configuration that provisions everything needed for a working, reachable VM on Nayatel Cloud: an SSH key, a private network, a security group, a compute instance, a data volume, and a floating IP. It also bootstraps a small HTTPS landing page so you have something to verify immediately after apply.
+
+The full source lives at [`examples/main.tf`](https://github.com/matifali/terraform-provider-nayatel/blob/main/examples/main.tf) in the provider's GitHub repository.
+
+## What it creates
+
+- `nayatel_ssh_key` - registers an SSH key for instance access
+- `nayatel_network` - a private network for the instance
+- `nayatel_security_group` - opens SSH (22), HTTPS (443), and ICMP ping
+- `nayatel_router` - connects the private network to the internet
+- `nayatel_instance` - the VM itself, attached to the network
+- `nayatel_security_group_attachment` - applies the security group to the instance
+- `nayatel_volume` and `nayatel_volume_attachment` - an extra data volume, separate from the instance's root disk
+- `nayatel_floating_ip` - a public IP attached to the instance
+- An HTTPS bootstrap (`terraform_data` with a `remote-exec` provisioner) that installs nginx with a self-signed certificate, so `https://<floating-ip>` responds right after apply
+
+All of the above (other than the SSH key, network, and security group) are gated behind `var.enable_compute_example`, so you can `terraform apply -var='enable_compute_example=false'` to try a lower-cost smoke test first.
+
+## Usage
+
+1. Set credentials (environment variables are recommended):
+
+```shell
+export NAYATEL_USERNAME="your-username"
+export NAYATEL_PASSWORD="your-password"
+```
+
+2. Copy `examples/main.tf` into a working directory and initialize Terraform:
+
+```shell
+terraform init
+```
+
+3. If you keep `enable_https_bootstrap = true` (the default), make sure the private key matching `ssh_public_key` is loaded in your SSH agent:
+
+```shell
+ssh-add ~/.ssh/id_ed25519
+```
+
+4. Review the plan, then apply:
+
+```shell
+terraform plan
+terraform apply
+```
+
+5. Once applied, the `ssh_command` and `https_url` outputs give you a ready-to-use command and URL:
+
+```shell
+terraform output ssh_command
+terraform output https_url
+```
+
+6. When done, tear everything down:
+
+```shell
+terraform destroy
+```
+
+-> Nayatel router-interface detach can be unreliable, so this example sets `force_delete_network_on_destroy = true` on its router because it owns the disposable example network. Do not set that on a router attached to a shared or pre-existing network.
+
+## Full configuration
+
+{{tffile "examples/main.tf"}}

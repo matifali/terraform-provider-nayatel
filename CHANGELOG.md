@@ -1,3 +1,14 @@
+## Unreleased
+
+BUG FIXES:
+
+* `nayatel_volume_attachment` create no longer crashes the apply with "Provider returned invalid result object" when the computed `device` attribute is left unset; found by actually running the new complete example end-to-end
+* `nayatel_volume` create no longer leaves `volume_type` unknown (crashing apply the same way) when the API returns an empty value for it
+* `nayatel_volume` no longer calls a singular get-by-ID endpoint that doesn't exist on the live API (confirmed directly: it 404s with an HTML body); `Get` now scans the volume list instead, removing a wasted request on every status poll
+* `nayatel_security_group` rules no longer show a permanent, non-converging reorder-only diff on every plan; the live API doesn't return rules in a stable order, and rules are a list (order-sensitive) block, so `Read` now restores the prior state's order for unchanged rule content
+* `nayatel_security_group` no longer keeps stale rules in state when the API reports zero (or only default) rules, or silently on a failed rules refresh; `Read` now always reflects the current rule set and surfaces a refresh failure as a visible warning instead of only an internal log
+* `nayatel_volume` create no longer risks overwriting a user-configured `volume_type` with an empty string if the API's response is momentarily empty right after creation; the fallback to empty now only applies when nothing was configured
+
 ## 0.0.4
 
 BUG FIXES:

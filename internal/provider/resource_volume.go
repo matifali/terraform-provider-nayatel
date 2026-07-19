@@ -179,8 +179,14 @@ func (r *VolumeResource) Create(ctx context.Context, req resource.CreateRequest,
 	data.Status = types.StringValue(volume.Status)
 	data.Bootable = types.BoolValue(volume.IsBootable())
 
+	// Prefer the API's value, but if it's momentarily empty (the volume can
+	// still be provisioning right after create) don't clobber a
+	// user-configured value in the plan -- only fill the gap when the
+	// attribute would otherwise be left Unknown (nothing configured).
 	if volume.VolumeType != "" {
 		data.VolumeType = types.StringValue(volume.VolumeType)
+	} else if data.VolumeType.IsUnknown() {
+		data.VolumeType = types.StringValue("")
 	}
 
 	// Wait for volume to become available
@@ -214,10 +220,6 @@ func (r *VolumeResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	volume, err := r.client.Volumes.Get(ctx, data.ID.ValueString())
 	if err != nil {
-		if client.IsNotFound(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read volume: %s", err))
 		return
 	}
@@ -296,7 +298,7 @@ func (r *VolumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	// Check if volume is attached and detach it first
 	volume, err := r.client.Volumes.Get(ctx, data.ID.ValueString())
-	if err != nil && !client.IsNotFound(err) {
+	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read volume: %s", err))
 		return
 	}

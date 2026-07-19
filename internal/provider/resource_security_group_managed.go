@@ -243,15 +243,26 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 	}
 	data.Description = types.StringValue(sg.Description)
 
-	// Read rules from API
-	apiRules, err := r.client.SecurityGroups.ListRules(ctx, data.ID.ValueString())
-	if err != nil {
-		tflog.Warn(ctx, "Unable to read security group rules", map[string]any{"error": err.Error()})
+	// The API's rule order is not stable across requests, but "rule" is a
+	// list (order-sensitive) rather than a set, so capture the prior state
+	// order here to restore it below and avoid a permanent reorder-only diff.
+	var priorRules []SecurityGroupRuleModel
+	if !data.Rules.IsNull() && !data.Rules.IsUnknown() {
+		resp.Diagnostics.Append(data.Rules.ElementsAs(ctx, &priorRules, false)...)
 	}
 
-	// Convert API rules to model - only include non-default egress rules
-	if len(apiRules) > 0 {
-		var ruleModels []SecurityGroupRuleModel
+	// Read rules from API. On error, keep the existing state rather than
+	// wiping it, but surface the warning to the user (not just internal
+	// logs) since the rules shown afterward may be stale.
+	apiRules, err := r.client.SecurityGroups.ListRules(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddWarning("Security Group Rules", fmt.Sprintf("Unable to read security group rules, keeping existing state: %s", err))
+	} else {
+		// Convert API rules to model - only include non-default egress rules.
+		// Always rebuild data.Rules (even to empty) below: the security group
+		// may legitimately have zero custom rules now, and skipping the
+		// update in that case would leave stale rules in state.
+		ruleModels := []SecurityGroupRuleModel{}
 		for _, apiRule := range apiRules {
 			// Skip default egress rules (allow all outbound)
 			if apiRule.Direction == "egress" && apiRule.Protocol == "Any" {
@@ -296,21 +307,21 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 			ruleModels = append(ruleModels, ruleModel)
 		}
 
-		if len(ruleModels) > 0 {
-			ruleType := types.ObjectType{
-				AttrTypes: map[string]attr.Type{
-					"direction":   types.StringType,
-					"ethertype":   types.StringType,
-					"protocol":    types.StringType,
-					"port_number": types.StringType,
-					"cidr":        types.StringType,
-				},
-			}
-			rulesList, diags := types.ListValueFrom(ctx, ruleType, ruleModels)
-			resp.Diagnostics.Append(diags...)
-			if !resp.Diagnostics.HasError() {
-				data.Rules = rulesList
-			}
+		ruleModels = reorderRulesToMatch(priorRules, ruleModels)
+
+		ruleType := types.ObjectType{
+			AttrTypes: map[string]attr.Type{
+				"direction":   types.StringType,
+				"ethertype":   types.StringType,
+				"protocol":    types.StringType,
+				"port_number": types.StringType,
+				"cidr":        types.StringType,
+			},
+		}
+		rulesList, diags := types.ListValueFrom(ctx, ruleType, ruleModels)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.Rules = rulesList
 		}
 	}
 
@@ -411,6 +422,33 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// reorderRulesToMatch returns fresh reordered to match prior wherever a
+// content match exists, appending any unmatched fresh rules (new additions)
+// at the end. This keeps state ordering stable across refreshes even though
+// "rule" is a list (order-sensitive) and the API's rule order is not.
+func reorderRulesToMatch(prior, fresh []SecurityGroupRuleModel) []SecurityGroupRuleModel {
+	used := make([]bool, len(fresh))
+	ordered := make([]SecurityGroupRuleModel, 0, len(fresh))
+
+	for _, p := range prior {
+		for i, f := range fresh {
+			if !used[i] && ruleMatches(p, f) {
+				ordered = append(ordered, f)
+				used[i] = true
+				break
+			}
+		}
+	}
+
+	for i, f := range fresh {
+		if !used[i] {
+			ordered = append(ordered, f)
+		}
+	}
+
+	return ordered
 }
 
 // ruleMatches checks if two rules are equivalent.

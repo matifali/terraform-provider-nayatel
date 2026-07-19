@@ -8,7 +8,7 @@ description: |-
 
 The Nayatel provider is a community-maintained, unofficial provider for interacting with Nayatel Cloud resources.
 
-~> This is a community-maintained provider and is not affiliated with or supported by Nayatel. Resources created through it are billed to your Nayatel Cloud account.
+-> This is a community-maintained provider and is not affiliated with or supported by Nayatel. Resources created through it are billed to your Nayatel Cloud account.
 
 ## Example Usage
 
@@ -28,6 +28,10 @@ provider "nayatel" {
   password = "your-password"
 }
 ```
+
+## Complete Example
+
+For a full, runnable configuration that provisions a network, security group, instance, data volume, and floating IP together, see the [Complete IaaS Example](guides/complete-example) guide.
 
 ## Authentication
 

@@ -28,43 +28,26 @@ func (s *VolumeService) List(ctx context.Context) ([]Volume, error) {
 	return decodeList[Volume](resp, "volumes")
 }
 
-// Get returns a volume by ID.
+// Get returns a volume by ID, or (nil, nil) if no volume with that ID
+// exists -- matching the not-found convention of every other service's
+// FindByID (InstanceService, RouterService, NetworkService,
+// SecurityGroupService). There is no working singular get-by-ID endpoint
+// for volumes on the live API -- confirmed by direct request, it 404s with
+// an HTML body rather than a JSON error -- so this scans the project's
+// volume list instead.
 func (s *VolumeService) Get(ctx context.Context, volumeID string) (*Volume, error) {
-	projectID, err := s.client.GetProjectID(ctx)
+	volumes, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Try to get volume details
-	resp, err := s.client.Get(ctx, fmt.Sprintf("/iaas/user/%s/project/%s/volume/%s", s.client.Username, projectID, volumeID))
-	if err != nil {
-		// Fallback: search in volume list
-		volumes, listErr := s.List(ctx)
-		if listErr != nil {
-			return nil, err // Return original error
+	for _, v := range volumes {
+		if v.ID == volumeID {
+			return &v, nil
 		}
-
-		for _, v := range volumes {
-			if v.ID == volumeID {
-				return &v, nil
-			}
-		}
-		return nil, err
 	}
 
-	var volume Volume
-	if err := json.Unmarshal(resp, &volume); err != nil {
-		// Try object with volume field
-		var result struct {
-			Volume Volume `json:"volume"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		volume = result.Volume
-	}
-
-	return &volume, nil
+	return nil, nil
 }
 
 // Create creates a new volume.
@@ -226,6 +209,9 @@ func (s *VolumeService) WaitForStatus(ctx context.Context, volumeID string, targ
 			volume, err := s.Get(ctx, volumeID)
 			if err != nil {
 				return nil, err
+			}
+			if volume == nil {
+				return nil, fmt.Errorf("volume %s not found while waiting for status %s", volumeID, targetStatus)
 			}
 
 			if volume.Status == targetStatus {
