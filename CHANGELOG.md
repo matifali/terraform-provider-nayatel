@@ -1,3 +1,17 @@
+## Unreleased
+
+BUG FIXES:
+
+* `nayatel_volume` and `nayatel_volume_attachment` now call the correct Nayatel API endpoints for create, attach, detach, extend, and delete; every one of these previously targeted a wrong path, method, or body shape and would have failed against the live API
+* `nayatel_volume` extend now sends the size increase as a delta (`add_size`), matching what the API actually expects, instead of the new absolute size
+* `nayatel_volume` create now identifies the new volume by diffing the volume list (with retries, matching the `nayatel_router` approach) instead of matching by name, which could adopt a pre-existing volume with the same name, since the create response carries only a status message and no volume object
+* `nayatel_volume` create now fails instead of silently succeeding when the API reports a failure (e.g. insufficient balance) with no volume object in the response
+* `nayatel_volume` and `nayatel_volume_attachment` now resolve the actual attached instance ID instead of using the volume API's `attached_to` field directly, which reports the instance's name rather than its ID; this fixed volume deletion (detach was targeting a nonexistent instance path) and volume attachment drift detection (attachment always looked removed on refresh)
+* `nayatel_volume` no longer treats an unattached volume as attached; the API's `"-"` not-attached sentinel was previously read as an instance name, which would have made `terraform destroy` fail on any standalone volume
+* `nayatel_volume` create no longer risks a panic (and an orphaned, billed, untracked volume) when the new volume takes longer than 5 minutes to report "available"
+* Instance-name resolution for an attached volume now errors instead of silently falling back to the raw (unusable) name when no matching instance is found, which previously got stuck detaching from a nonexistent path on delete, or made `nayatel_volume_attachment` look permanently drifted on every refresh
+* `nayatel_volume_attachment` create now reports the correct `device` path immediately instead of always showing empty until the next refresh
+
 ## 0.0.3
 
 BUG FIXES:

@@ -499,7 +499,9 @@ func (v *Volume) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	if len(v.Attachments) == 0 && aux.AttachedTo != "" {
+	// "-" is Nayatel's sentinel for "not attached to anything", not an
+	// instance name.
+	if len(v.Attachments) == 0 && aux.AttachedTo != "" && aux.AttachedTo != "-" {
 		v.Attachments = []VolumeAttachment{{InstanceID: aux.AttachedTo}}
 	}
 

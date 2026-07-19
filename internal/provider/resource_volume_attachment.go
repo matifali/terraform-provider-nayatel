@@ -105,14 +105,16 @@ func (r *VolumeAttachmentResource) Create(ctx context.Context, req resource.Crea
 
 	data.ID = types.StringValue(fmt.Sprintf("%s:%s", volumeID, instanceID))
 
-	// Get device path from attachment info
-	if volume != nil && len(volume.Attachments) > 0 {
-		for _, att := range volume.Attachments {
-			if att.GetInstanceID() == instanceID {
+	// Get device path from attachment info. The volume API reports the
+	// attached instance by name, not ID, so resolve it before comparing
+	// against the instance_id we just attached to.
+	if volume != nil {
+		if resolvedID, err := r.client.Volumes.ResolveAttachedInstanceID(ctx, volume); err == nil && resolvedID == instanceID {
+			for _, att := range volume.Attachments {
 				if att.Device != "" {
 					data.Device = types.StringValue(att.Device)
+					break
 				}
-				break
 			}
 		}
 	}
@@ -151,22 +153,25 @@ func (r *VolumeAttachmentResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	// Check if still attached to the same instance
-	attached := false
-	for _, att := range volume.Attachments {
-		if att.GetInstanceID() == instanceID {
-			attached = true
-			if att.Device != "" {
-				data.Device = types.StringValue(att.Device)
-			}
-			break
-		}
+	// Volumes report the attached instance by name (attached_to), not by
+	// ID, so resolve the real instance ID before comparing against state.
+	attachedInstanceID, err := r.client.Volumes.ResolveAttachedInstanceID(ctx, volume)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to resolve instance attached to volume: %s", err))
+		return
 	}
 
-	if !attached {
+	if attachedInstanceID != instanceID {
 		// Volume is no longer attached to this instance
 		resp.State.RemoveResource(ctx)
 		return
+	}
+
+	for _, att := range volume.Attachments {
+		if att.Device != "" {
+			data.Device = types.StringValue(att.Device)
+			break
+		}
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

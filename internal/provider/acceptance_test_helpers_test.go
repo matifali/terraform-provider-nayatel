@@ -185,7 +185,7 @@ func testAccPreCheckVolumes(t *testing.T) {
 
 	testAccPreCheck(t)
 	if os.Getenv("NAYATEL_ACC_RUN_VOLUME_TESTS") != "1" {
-		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_TESTS=1 to run volume acceptance tests; recent live runs returned 404 from unverified volume endpoints, and volume creation may be billable")
+		t.Skip("Set NAYATEL_ACC_RUN_VOLUME_TESTS=1 to run volume acceptance tests; volume creation may be billable")
 	}
 }
 

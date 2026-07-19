@@ -141,10 +141,37 @@ func (r *VolumeResource) Create(ctx context.Context, req resource.CreateRequest,
 		createReq.SnapshotID = data.SnapshotID.ValueString()
 	}
 
+	// Snapshot existing volumes first: the create API returns only a status
+	// message, so the new volume is identified by diffing the list.
+	// Matching by name alone could adopt a pre-existing volume with the
+	// same name (or the same server-assigned default name).
+	before, err := r.client.Volumes.List(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list volumes before creation: %s", err))
+		return
+	}
+	existing := snapshotIDs(before, func(v client.Volume) string { return v.ID })
+
 	volume, err := r.client.Volumes.Create(ctx, createReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create volume: %s", err))
 		return
+	}
+
+	if volume.ID == "" {
+		found, err := identifyCreated(ctx, existing, createReq.Name, r.client.Volumes.List,
+			func(v client.Volume) string { return v.ID },
+			func(v client.Volume) string { return v.Name },
+		)
+		if err != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list volumes after creation: %s", err))
+			return
+		}
+		if found == nil {
+			resp.Diagnostics.AddError("Client Error", "Unable to identify the created volume: no new volume appeared in the volume list")
+			return
+		}
+		volume = found
 	}
 
 	data.ID = types.StringValue(volume.ID)
@@ -159,19 +186,19 @@ func (r *VolumeResource) Create(ctx context.Context, req resource.CreateRequest,
 	// Wait for volume to become available
 	if volume.Status != "available" && volume.Status != "in-use" {
 		tflog.Debug(ctx, "Waiting for volume to become available")
-		volume, err = r.client.Volumes.WaitForStatus(ctx, volume.ID, "available", 5*time.Minute)
+		waited, err := r.client.Volumes.WaitForStatus(ctx, volume.ID, "available", 5*time.Minute)
 		if err != nil {
+			// The volume was already created (and is billing); keep the
+			// pre-wait volume rather than the nil WaitForStatus result so
+			// the rest of Create can still populate state from it.
 			resp.Diagnostics.AddWarning("Volume Status", fmt.Sprintf("Volume created but not yet available: %s", err))
 		} else {
+			volume = waited
 			data.Status = types.StringValue(volume.Status)
 		}
 	}
 
-	if volume.IsAttached() {
-		data.InstanceID = types.StringValue(volume.GetAttachedInstanceID())
-	} else {
-		data.InstanceID = types.StringNull()
-	}
+	data.InstanceID = resolveVolumeInstanceID(ctx, r.client, volume)
 
 	tflog.Trace(ctx, "Created volume", map[string]any{"id": data.ID.ValueString()})
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -212,11 +239,7 @@ func (r *VolumeResource) Read(ctx context.Context, req resource.ReadRequest, res
 		data.VolumeType = types.StringValue(volume.VolumeType)
 	}
 
-	if volume.IsAttached() {
-		data.InstanceID = types.StringValue(volume.GetAttachedInstanceID())
-	} else {
-		data.InstanceID = types.StringNull()
-	}
+	data.InstanceID = resolveVolumeInstanceID(ctx, r.client, volume)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -239,7 +262,8 @@ func (r *VolumeResource) Update(ctx context.Context, req resource.UpdateRequest,
 			"new_size": data.Size.ValueInt64(),
 		})
 
-		_, err := r.client.Volumes.Extend(ctx, data.ID.ValueString(), int(data.Size.ValueInt64()))
+		addSize := int(data.Size.ValueInt64() - state.Size.ValueInt64())
+		_, err := r.client.Volumes.Extend(ctx, data.ID.ValueString(), addSize)
 		if err != nil {
 			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to extend volume: %s", err))
 			return
@@ -278,11 +302,17 @@ func (r *VolumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 
 	if volume != nil && volume.IsAttached() {
+		instanceID, err := r.client.Volumes.ResolveAttachedInstanceID(ctx, volume)
+		if err != nil {
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to resolve instance attached to volume: %s", err))
+			return
+		}
+
 		tflog.Debug(ctx, "Detaching volume before deletion", map[string]any{
 			"volume_id":   data.ID.ValueString(),
-			"instance_id": volume.GetAttachedInstanceID(),
+			"instance_id": instanceID,
 		})
-		_, err := r.client.Volumes.Detach(ctx, data.ID.ValueString(), volume.GetAttachedInstanceID())
+		_, err = r.client.Volumes.Detach(ctx, data.ID.ValueString(), instanceID)
 		if err != nil {
 			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to detach volume: %s", err))
 			return
@@ -306,4 +336,21 @@ func (r *VolumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 func (r *VolumeResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// resolveVolumeInstanceID returns the ID of the instance a volume is
+// attached to, for the computed instance_id attribute. This is
+// informational, so a resolution failure falls back to the volume's raw
+// (name-valued) attached-instance field rather than failing the operation.
+func resolveVolumeInstanceID(ctx context.Context, c *client.Client, volume *client.Volume) types.String {
+	if !volume.IsAttached() {
+		return types.StringNull()
+	}
+
+	instanceID, err := c.Volumes.ResolveAttachedInstanceID(ctx, volume)
+	if err != nil || instanceID == "" {
+		return types.StringValue(volume.GetAttachedInstanceID())
+	}
+
+	return types.StringValue(instanceID)
 }

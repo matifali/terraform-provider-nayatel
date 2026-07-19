@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -47,4 +48,55 @@ type datasourceWithClient struct{ withClient }
 
 func (w *datasourceWithClient) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	w.configure(req.ProviderData, "Data Source", &resp.Diagnostics)
+}
+
+// snapshotIDs captures the IDs present in items, for later diffing against
+// a post-create list to find newly appeared resources.
+func snapshotIDs[T any](items []T, getID func(T) string) map[string]struct{} {
+	existing := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		existing[getID(item)] = struct{}{}
+	}
+	return existing
+}
+
+// identifyCreated finds a resource created after existing was captured by
+// snapshotIDs. Several Nayatel create APIs return only a status message, not
+// the created object, so the new resource must be found by diffing a
+// subsequent list; that list can also lag briefly after create, so this
+// retries. If several new items appear at once (concurrent creates), it
+// prefers one named wantName among them, else the most recently listed one.
+// Returns nil, nil if no new item ever appears.
+func identifyCreated[T any](ctx context.Context, existing map[string]struct{}, wantName string, list func(context.Context) ([]T, error), getID, getName func(T) string) (*T, error) {
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+
+		items, err := list(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		var created []*T
+		for i := range items {
+			if _, ok := existing[getID(items[i])]; !ok {
+				created = append(created, &items[i])
+			}
+		}
+
+		if len(created) == 1 {
+			return created[0], nil
+		}
+		if len(created) > 1 {
+			for _, cand := range created {
+				if getName(*cand) == wantName {
+					return cand, nil
+				}
+			}
+			return created[len(created)-1], nil
+		}
+	}
+
+	return nil, nil
 }

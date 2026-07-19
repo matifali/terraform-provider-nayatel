@@ -116,10 +116,7 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers before creation: %s", err))
 		return
 	}
-	existing := make(map[string]struct{}, len(before))
-	for _, rt := range before {
-		existing[rt.ID] = struct{}{}
-	}
+	existing := snapshotIDs(before, func(rt client.Router) string { return rt.ID })
 
 	createReq := &client.RouterCreateRequest{
 		NetworkID:  providerNetworkID,
@@ -132,43 +129,13 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	// The new router can take a moment to appear in the list.
-	var router *client.Router
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			time.Sleep(2 * time.Second)
-		}
-
-		routers, err := r.client.Routers.List(ctx)
-		if err != nil {
-			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers after creation: %s", err))
-			return
-		}
-
-		var created []*client.Router
-		for i := range routers {
-			if _, ok := existing[routers[i].ID]; !ok {
-				created = append(created, &routers[i])
-			}
-		}
-
-		if len(created) == 1 {
-			router = created[0]
-			break
-		}
-		if len(created) > 1 {
-			// Concurrent creation; prefer the requested name among the new routers.
-			for _, cand := range created {
-				if cand.Name == data.Name.ValueString() {
-					router = cand
-					break
-				}
-			}
-			if router == nil {
-				router = created[len(created)-1]
-			}
-			break
-		}
+	router, err := identifyCreated(ctx, existing, data.Name.ValueString(), r.client.Routers.List,
+		func(rt client.Router) string { return rt.ID },
+		func(rt client.Router) string { return rt.Name },
+	)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list routers after creation: %s", err))
+		return
 	}
 	if router == nil {
 		resp.Diagnostics.AddError("Client Error", "Unable to identify the created router: no new router appeared in the router list")

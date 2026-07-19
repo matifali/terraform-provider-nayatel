@@ -55,6 +55,25 @@ func TestVolumeUnmarshalJSON_DocumentedShape(t *testing.T) {
 	}
 }
 
+func TestVolumeUnmarshalJSON_NotAttachedSentinel(t *testing.T) {
+	// Captured live: an unattached, available volume reports "attached_to":"-",
+	// not an empty string. Treating "-" as an instance name would make
+	// IsAttached() true for a volume that isn't attached to anything.
+	raw := `{"serial_no":1,"volume_id":"a93eaf69-2ef1-4f4a-8836-ba3629dcb659","name":"tf-test-volume","description":"Custom volume","size":10,"status":"available","volume_type":"SSD","bootable":false,"attached_to":"-"}`
+
+	var v Volume
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		t.Fatalf("unmarshal failed: %s", err)
+	}
+
+	if v.IsAttached() {
+		t.Errorf("IsAttached() = true, want false for attached_to:\"-\"")
+	}
+	if got := v.GetAttachedInstanceID(); got != "" {
+		t.Errorf("GetAttachedInstanceID() = %q, want empty", got)
+	}
+}
+
 func TestVolumeUnmarshalJSON_ListDecode(t *testing.T) {
 	raw := `[{"volume_id":"a","name":"one","bootable":false},{"volume_id":"b","name":"two","bootable":true}]`
 
