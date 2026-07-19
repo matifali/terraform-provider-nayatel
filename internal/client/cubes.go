@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -63,23 +62,24 @@ func (c *Cube) GetPublicIP() string {
 
 // GetCPU returns the CPU count as an int (0 if unparseable).
 func (c *Cube) GetCPU() int {
-	var cpu int
-	_, _ = fmt.Sscanf(c.CPU, "%d", &cpu)
-	return cpu
+	return parseLeadingInt(c.CPU)
 }
 
 // GetMemoryGB returns the memory size in GB (0 if unparseable).
 func (c *Cube) GetMemoryGB() int {
-	var mem int
-	_, _ = fmt.Sscanf(c.Memory, "%d", &mem)
-	return mem
+	return parseLeadingInt(c.Memory)
 }
 
 // GetDiskGB returns the disk size in GB (0 if unparseable).
 func (c *Cube) GetDiskGB() int {
-	var disk int
-	_, _ = fmt.Sscanf(c.Disk, "%d", &disk)
-	return disk
+	return parseLeadingInt(c.Disk)
+}
+
+// parseLeadingInt parses the leading integer from s (0 if unparseable).
+func parseLeadingInt(s string) int {
+	var n int
+	_, _ = fmt.Sscanf(s, "%d", &n)
+	return n
 }
 
 // CubeProject is the cube project (quota container) for a user.
@@ -195,15 +195,7 @@ func (s *CubeService) Images(ctx context.Context) ([]CubeImage, error) {
 		return nil, err
 	}
 
-	var result struct {
-		Status bool        `json:"status"`
-		Images []CubeImage `json:"images"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return result.Images, nil
+	return decodeList[CubeImage](resp, "images")
 }
 
 // Preview previews cube cost before creation.
@@ -325,38 +317,6 @@ func (s *CubeService) FindByName(ctx context.Context, projectID, instanceName st
 		return &cube, nil
 	}
 	return nil, nil
-}
-
-// CubeState is a target power state for SetState.
-type CubeState string
-
-const (
-	CubeStateStart CubeState = "start"
-	CubeStateStop  CubeState = "stop"
-)
-
-// SetState starts or stops a cube. The API returns an empty body; success
-// is indicated by the HTTP status alone.
-func (s *CubeService) SetState(ctx context.Context, projectID, instanceName string, state CubeState) error {
-	payload := map[string]interface{}{
-		"state":    string(state),
-		"timeout":  25,
-		"force":    false,
-		"stateful": false,
-	}
-
-	_, err := s.client.Request(ctx, http.MethodPut, fmt.Sprintf("/cubes/project/%s/instance/instances/%s/state", projectID, instanceName), payload)
-	return err
-}
-
-// Start starts a cube.
-func (s *CubeService) Start(ctx context.Context, projectID, instanceName string) error {
-	return s.SetState(ctx, projectID, instanceName, CubeStateStart)
-}
-
-// Stop stops a cube.
-func (s *CubeService) Stop(ctx context.Context, projectID, instanceName string) error {
-	return s.SetState(ctx, projectID, instanceName, CubeStateStop)
 }
 
 // Delete destroys a cube permanently. The API returns an empty body.

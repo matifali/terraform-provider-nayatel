@@ -18,11 +18,6 @@ func (s *ProjectService) List(ctx context.Context) ([]Project, error) {
 		return nil, err
 	}
 
-	var projects []Project
-	if err := json.Unmarshal(resp, &projects); err == nil {
-		return projects, nil
-	}
-
 	if projects, err := decodeList[Project](resp, "projects"); err == nil {
 		return projects, nil
 	}

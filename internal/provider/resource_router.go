@@ -146,6 +146,13 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 	data.Name = types.StringValue(router.Name)
 	data.Status = types.StringValue(router.Status)
 
+	// Persist the router as soon as it's confirmed created so a later
+	// AddInterface failure doesn't leave an already-billed router untracked.
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Add interface to connect private subnet
 	tflog.Debug(ctx, "Attaching subnet to router", map[string]any{"subnet_id": data.SubnetID.ValueString()})
 	_, err = r.client.Routers.AddInterface(ctx, data.ID.ValueString(), data.SubnetID.ValueString())
@@ -210,14 +217,11 @@ func (r *RouterResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	tflog.Debug(ctx, "Deleting router", map[string]any{"id": routerID, "force_delete_network_on_destroy": forceDeleteNetworkOnDestroy})
 
-	if err := r.deleteRouterWithInterfaceRetry(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy); err != nil && !client.IsNotFound(err) {
+	backoffs := []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
+	if err := r.deleteRouterWithInterfaceRetryBackoffs(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy, backoffs); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete router: %s", err))
 		return
 	}
-}
-
-func (r *RouterResource) deleteRouterWithInterfaceRetry(ctx context.Context, routerID, subnetID string, forceDeleteNetworkOnDestroy bool) error {
-	return r.deleteRouterWithInterfaceRetryBackoffs(ctx, routerID, subnetID, forceDeleteNetworkOnDestroy, []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second})
 }
 
 func (r *RouterResource) deleteRouterWithInterfaceRetryBackoffs(ctx context.Context, routerID, subnetID string, forceDeleteNetworkOnDestroy bool, backoffs []time.Duration) error {

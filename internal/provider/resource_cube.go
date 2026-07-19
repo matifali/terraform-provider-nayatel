@@ -199,6 +199,17 @@ func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 
+	// Persist the ID as soon as the cube is confirmed billed/created so a
+	// later failure (project lookup or WaitForStatus) doesn't leave an
+	// already-billed cube untracked by Terraform. Read() resolves the
+	// project itself when project_id isn't yet known, same as after import.
+	instanceName := createReq.InstanceName(r.client.Username)
+	data.ID = types.StringValue(instanceName)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Find the cube project (created alongside the first cube)
 	tflog.Debug(ctx, "Waiting for cube project")
 	project, err := r.waitForProject(ctx, 2*time.Minute)
@@ -206,8 +217,6 @@ func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, r
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find cube project after creation: %s", err))
 		return
 	}
-
-	instanceName := createReq.InstanceName(r.client.Username)
 
 	// Wait for the cube to be Running. The instance endpoint returns 403
 	// while provisioning, which WaitForStatus tolerates.
@@ -218,7 +227,7 @@ func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 
-	data.ID = types.StringValue(instanceName)
+	// data.ID is already set from the early save above.
 	data.ProjectID = types.StringValue(project.Name)
 	data.Status = types.StringValue(cube.Status)
 	if publicIP := cube.GetPublicIP(); publicIP != "" {

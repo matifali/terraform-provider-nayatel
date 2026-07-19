@@ -23,9 +23,7 @@ const (
 type InstanceAction string
 
 const (
-	InstanceActionStart  InstanceAction = "START"
-	InstanceActionStop   InstanceAction = "STOP"
-	InstanceActionReboot InstanceAction = "REBOOT"
+	InstanceActionStop InstanceAction = "STOP"
 )
 
 // Project represents a Nayatel Cloud project.
@@ -361,39 +359,7 @@ func (r *SecurityGroupRuleCreateRequest) ToAPIPayload() map[string]interface{} {
 	}
 
 	// Determine ruleName based on port/protocol or use provided name
-	ruleName := r.RuleName
-	if ruleName == "" && r.PortNumber != "" {
-		// Map common ports to preset rule names
-		switch r.PortNumber {
-		case "22":
-			ruleName = "SSH"
-		case "80":
-			ruleName = "HTTP"
-		case "443":
-			ruleName = "HTTPS"
-		case "3389":
-			ruleName = "RDP"
-		default:
-			// Use "Custom TCP Rule" or "Custom UDP Rule" for other ports
-			switch r.Protocol {
-			case "tcp", "TCP":
-				ruleName = "Custom TCP Rule"
-			case "udp", "UDP":
-				ruleName = "Custom UDP Rule"
-			case "icmp", "ICMP":
-				ruleName = "All ICMP"
-			default:
-				ruleName = "Custom TCP Rule" // Default to TCP
-			}
-		}
-	}
-	if ruleName == "" {
-		switch r.Protocol {
-		case "icmp", "ICMP":
-			ruleName = "All ICMP"
-		}
-	}
-	if ruleName != "" {
+	if ruleName := resolveRuleName(r.RuleName, r.PortNumber, r.Protocol); ruleName != "" {
 		payload["ruleName"] = ruleName
 	}
 
@@ -408,6 +374,42 @@ func (r *SecurityGroupRuleCreateRequest) ToAPIPayload() map[string]interface{} {
 		payload["cidr"] = r.CIDR
 	}
 	return payload
+}
+
+// resolveRuleName picks the API preset rule name: an explicit name wins,
+// otherwise a port-based lookup (falling back to a protocol-based generic
+// name), otherwise a protocol-only fallback for portless rules.
+func resolveRuleName(name, port, protocol string) string {
+	if name != "" {
+		return name
+	}
+	if port != "" {
+		switch port {
+		case "22":
+			return "SSH"
+		case "80":
+			return "HTTP"
+		case "443":
+			return "HTTPS"
+		case "3389":
+			return "RDP"
+		}
+		switch protocol {
+		case "tcp", "TCP":
+			return "Custom TCP Rule"
+		case "udp", "UDP":
+			return "Custom UDP Rule"
+		case "icmp", "ICMP":
+			return "All ICMP"
+		default:
+			return "Custom TCP Rule" // Default to TCP
+		}
+	}
+	switch protocol {
+	case "icmp", "ICMP":
+		return "All ICMP"
+	}
+	return ""
 }
 
 // Image represents a Nayatel Cloud OS image.

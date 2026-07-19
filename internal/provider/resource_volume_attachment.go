@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -216,17 +217,8 @@ func (r *VolumeAttachmentResource) Delete(ctx context.Context, req resource.Dele
 
 func (r *VolumeAttachmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	// Import format: volume_id:instance_id
-	id := req.ID
-	var volumeID, instanceID string
-	for i, c := range id {
-		if c == ':' {
-			volumeID = id[:i]
-			instanceID = id[i+1:]
-			break
-		}
-	}
-
-	if volumeID == "" || instanceID == "" {
+	volumeID, instanceID, found := strings.Cut(req.ID, ":")
+	if !found || volumeID == "" || instanceID == "" {
 		resp.Diagnostics.AddError(
 			"Invalid Import ID",
 			"Import ID must be in the format: volume_id:instance_id",
@@ -234,7 +226,7 @@ func (r *VolumeAttachmentResource) ImportState(ctx context.Context, req resource
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), id)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("volume_id"), volumeID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), instanceID)...)
 }

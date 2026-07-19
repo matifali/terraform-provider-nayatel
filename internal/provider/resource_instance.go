@@ -197,6 +197,17 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
+	// Persist the instance as soon as it's confirmed created so a later
+	// WaitForStatus failure doesn't leave an already-billed instance
+	// untracked by Terraform.
+	data.ID = types.StringValue(instance.GetID())
+	data.Status = types.StringValue(string(instance.GetStatus()))
+	data.Description = types.StringValue(createReq.Description)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Wait for instance to become active
 	tflog.Debug(ctx, "Waiting for instance to become active")
 	instance, err = r.client.Instances.WaitForStatus(ctx, instance.GetID(), client.InstanceStatusActive, 10*time.Minute)
@@ -205,10 +216,8 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// Update state
-	data.ID = types.StringValue(instance.GetID())
+	// Update state (ID and description are already set from the early save above)
 	data.Status = types.StringValue(string(instance.GetStatus()))
-	data.Description = types.StringValue(createReq.Description)
 
 	if publicIP := instance.GetPublicIP(); publicIP != "" {
 		data.PublicIP = types.StringValue(publicIP)

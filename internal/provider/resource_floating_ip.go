@@ -186,20 +186,27 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
+	// Persist a minimal identifying state as soon as the IP is known so a
+	// later FindByIP failure doesn't leave an already-billed/attached
+	// floating IP untracked by Terraform.
+	data.ID = types.StringValue(ip)
+	data.IPAddress = types.StringValue(ip)
+	data.Status = types.StringValue("ACTIVE")
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Find the floating IP details
 	fip, err := r.client.FloatingIPs.FindByIP(ctx, ip)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find floating IP details: %s", err))
 		return
 	}
-	if fip == nil {
-		// IP might not be immediately visible, use the IP as ID
-		data.ID = types.StringValue(ip)
-		data.IPAddress = types.StringValue(ip)
-		data.Status = types.StringValue("ACTIVE")
-	} else {
+	// If the IP isn't immediately visible, keep the early-saved ID/status
+	// (IP used as ID); otherwise refine them with the found details.
+	if fip != nil {
 		data.ID = types.StringValue(fip.ID)
-		data.IPAddress = types.StringValue(ip)
 		data.Status = types.StringValue(fip.Status)
 	}
 

@@ -161,20 +161,33 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 		Description: data.Description.ValueString(),
 	}
 
-	_, err := r.client.SecurityGroups.Create(ctx, createReq)
+	// Snapshot existing groups first: the create API returns only a status
+	// message, so the new group is identified by diffing the list. Matching
+	// by name alone (FindByName) would adopt a pre-existing group with the
+	// same configured name instead of the one just created.
+	before, err := r.client.SecurityGroups.List(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list security groups before creation: %s", err))
+		return
+	}
+	existing := snapshotIDs(before, func(sg client.SecurityGroup) string { return sg.ID })
+
+	_, err = r.client.SecurityGroups.Create(ctx, createReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create security group: %s", err))
 		return
 	}
 
-	// Find the created security group by name
-	sg, err := r.client.SecurityGroups.FindByName(ctx, data.Name.ValueString())
+	sg, err := identifyCreated(ctx, existing, data.Name.ValueString(), r.client.SecurityGroups.List,
+		func(sg client.SecurityGroup) string { return sg.ID },
+		func(sg client.SecurityGroup) string { return sg.Name },
+	)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find created security group: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list security groups after creation: %s", err))
 		return
 	}
 	if sg == nil {
-		resp.Diagnostics.AddError("Client Error", "Security group not found after creation")
+		resp.Diagnostics.AddError("Client Error", "Unable to identify the created security group: no new group appeared in the security group list")
 		return
 	}
 
@@ -182,6 +195,14 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 	// Note: API may add suffix to name (e.g., "terraform-ssh-925"), but we keep
 	// the configured name in state. The attachment resource will look up the
 	// actual name by ID when needed.
+
+	// Persist the security group as soon as it's confirmed created so a
+	// later CreateRule failure doesn't leave it untracked by Terraform; a
+	// subsequent Read/Update reconciles which rules actually exist remotely.
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	// Create rules
 	var rules []SecurityGroupRuleModel
@@ -288,16 +309,10 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 
 			// Extract port from port_range (format: "80 - 80" or "Any")
 			if apiRule.PortRange != "" && apiRule.PortRange != "Any" {
-				// Take the first port from range
+				// Extract the first port from "80 - 80" style ranges.
 				port := apiRule.PortRange
-				if idx := len(port); idx > 0 {
-					// Split "80 - 80" and take first part
-					for i, c := range port {
-						if c == ' ' {
-							port = port[:i]
-							break
-						}
-					}
+				if i := strings.IndexByte(port, ' '); i >= 0 {
+					port = port[:i]
 				}
 				ruleModel.PortNumber = types.StringValue(port)
 			} else {

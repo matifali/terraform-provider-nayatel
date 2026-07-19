@@ -105,30 +105,39 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		BandwidthLimit: int(data.BandwidthLimit.ValueInt64()),
 	}
 
+	// Snapshot existing networks first: the create API returns only a
+	// status message, so the new network is identified by diffing the
+	// list. Taking the list's last entry would misidentify the created
+	// network if another network is created concurrently or the API
+	// doesn't return items in creation order.
+	before, err := r.client.Networks.List(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list networks before creation: %s", err))
+		return
+	}
+	existing := snapshotIDs(before, func(n client.Network) string { return n.ID })
+
 	// SafeCreate does preview check, balance verification (with retry for 0 balance glitch),
 	// and creation with retries - all with safety checks to avoid unwanted charges
-	_, err := r.client.Networks.SafeCreate(ctx, createReq)
+	_, err = r.client.Networks.SafeCreate(ctx, createReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create network: %s", err))
 		return
 	}
 
-	// The API doesn't return network details in the create response,
-	// so we need to fetch the network list to find the newly created network.
-	networks, err := r.client.Networks.List(ctx)
+	network, err := identifyCreated(ctx, existing, "", r.client.Networks.List,
+		func(n client.Network) string { return n.ID },
+		func(n client.Network) string { return n.Name },
+	)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list networks after creation: %s", err))
 		return
 	}
-
-	// Find the most recently created network (the one we just created)
-	if len(networks) == 0 {
-		resp.Diagnostics.AddError("Client Error", "No networks found after creation")
+	if network == nil {
+		resp.Diagnostics.AddError("Client Error", "Unable to identify the created network: no new network appeared in the network list")
 		return
 	}
 
-	// Take the last network in the list (most recent)
-	network := networks[len(networks)-1]
 	data.ID = types.StringValue(network.ID)
 	data.Name = types.StringValue(network.Name)
 	data.Status = types.StringValue(network.Status)

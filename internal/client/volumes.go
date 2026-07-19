@@ -249,19 +249,3 @@ func (s *VolumeService) ResolveAttachedInstanceID(ctx context.Context, v *Volume
 
 	return instance.GetID(), nil
 }
-
-// FindByName finds a volume by name.
-func (s *VolumeService) FindByName(ctx context.Context, name string) (*Volume, error) {
-	volumes, err := s.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, volume := range volumes {
-		if volume.Name == name {
-			return &volume, nil
-		}
-	}
-
-	return nil, nil
-}

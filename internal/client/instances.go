@@ -27,21 +27,6 @@ func (s *InstanceService) List(ctx context.Context) ([]Instance, error) {
 	return decodeList[Instance](resp, "instances")
 }
 
-// GetDiagnostics returns instance diagnostics.
-func (s *InstanceService) GetDiagnostics(ctx context.Context, instanceID string) (map[string]interface{}, error) {
-	resp, err := s.client.Get(ctx, fmt.Sprintf("/iaas/instance/%s/diagnostics", instanceID))
-	if err != nil {
-		return nil, err
-	}
-
-	var diagnostics map[string]interface{}
-	if err := json.Unmarshal(resp, &diagnostics); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return diagnostics, nil
-}
-
 // Create creates a new instance.
 func (s *InstanceService) Create(ctx context.Context, req *InstanceCreateRequest) (*APIResponse, error) {
 	resp, err := s.client.Post(ctx, fmt.Sprintf("/iaas/user/%s/project", s.client.Username), req.ToAPIPayload())
@@ -160,19 +145,9 @@ func (s *InstanceService) Action(ctx context.Context, instanceID string, action 
 	return &apiResp, nil
 }
 
-// Start starts an instance.
-func (s *InstanceService) Start(ctx context.Context, instanceID string) (*APIResponse, error) {
-	return s.Action(ctx, instanceID, InstanceActionStart)
-}
-
 // Stop stops an instance.
 func (s *InstanceService) Stop(ctx context.Context, instanceID string) (*APIResponse, error) {
 	return s.Action(ctx, instanceID, InstanceActionStop)
-}
-
-// Reboot reboots an instance.
-func (s *InstanceService) Reboot(ctx context.Context, instanceID string) (*APIResponse, error) {
-	return s.Action(ctx, instanceID, InstanceActionReboot)
 }
 
 // WaitForStatus waits for an instance to reach a specific status.
@@ -199,8 +174,6 @@ func (s *InstanceService) WaitForStatus(ctx context.Context, instanceID string, 
 			}
 
 			currentStatus := instance.GetStatus()
-			// Debug: log current status
-			fmt.Printf("[DEBUG] Instance %s current status: '%s' (target: '%s')\n", instanceID, currentStatus, targetStatus)
 
 			if currentStatus == targetStatus {
 				return instance, nil

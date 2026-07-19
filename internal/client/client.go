@@ -660,7 +660,8 @@ func IsNotFound(err error) bool {
 
 // IsInsufficientBalance returns true if the error is a 402 payment required / insufficient balance error.
 func IsInsufficientBalance(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 402
 	}
 	return false
@@ -683,7 +684,7 @@ func (c *Client) GetBalance(ctx context.Context) (*BalanceInfo, error) {
 	var result struct {
 		Status  bool    `json:"status"`
 		Balance float64 `json:"balance"`
-		Data    struct {
+		Data    *struct {
 			Balance         float64 `json:"balance"`
 			PendingCharges  float64 `json:"pending_charges"`
 			AvailableCredit float64 `json:"available_credit"`
@@ -693,9 +694,12 @@ func (c *Client) GetBalance(ctx context.Context) (*BalanceInfo, error) {
 		return nil, fmt.Errorf("failed to decode balance response: %w", err)
 	}
 
-	// Handle different API response formats
+	// Handle different API response formats: some responses nest the balance
+	// under "data", others put it at the top level. A nil Data (key absent)
+	// distinguishes the flat shape from the nested shape, so a legitimately
+	// zero or negative nested balance is no longer mistaken for the flat shape.
 	info := &BalanceInfo{}
-	if result.Data.Balance > 0 {
+	if result.Data != nil {
 		info.Balance = result.Data.Balance
 		info.PendingCharges = result.Data.PendingCharges
 		info.AvailableCredit = result.Data.AvailableCredit

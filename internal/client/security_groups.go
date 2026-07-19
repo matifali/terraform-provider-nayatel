@@ -154,18 +154,7 @@ func (s *SecurityGroupService) ListRules(ctx context.Context, securityGroupID st
 		return nil, err
 	}
 
-	var rules []SecurityGroupRule
-	if err := json.Unmarshal(resp, &rules); err != nil {
-		var result struct {
-			Rules []SecurityGroupRule `json:"rules"`
-		}
-		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-		rules = result.Rules
-	}
-
-	return rules, nil
+	return decodeList[SecurityGroupRule](resp, "rules")
 }
 
 // CreateRule creates a new rule in a security group.
@@ -181,20 +170,4 @@ func (s *SecurityGroupService) CreateRule(ctx context.Context, securityGroupID s
 	}
 
 	return &apiResp, nil
-}
-
-// FindRuleByID finds a rule by ID in a security group.
-func (s *SecurityGroupService) FindRuleByID(ctx context.Context, securityGroupID, ruleID string) (*SecurityGroupRule, error) {
-	rules, err := s.ListRules(ctx, securityGroupID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, rule := range rules {
-		if rule.ID == ruleID {
-			return &rule, nil
-		}
-	}
-
-	return nil, nil
 }
