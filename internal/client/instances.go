@@ -62,45 +62,11 @@ func (s *InstanceService) Preview(ctx context.Context, req *InstanceCreateReques
 // 2. Checks account balance with retries (handles Nayatel API 0 balance glitch)
 // 3. Only then proceeds with creation (with retries for transient errors).
 func (s *InstanceService) SafeCreate(ctx context.Context, req *InstanceCreateRequest) (*APIResponse, error) {
-	// Step 1: Get required cost from preview API
-	preview, err := s.Preview(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("preview failed (API may be having issues, aborting to protect against unwanted charges): %w", err)
-	}
-
-	// Extract prorated cost from preview response
-	requiredBalance := ExtractCostFromPreview(preview)
-	if requiredBalance <= 0 {
-		return nil, fmt.Errorf("unable to determine cost from preview response (API may be having issues, aborting to protect against unwanted charges)")
-	}
-
-	// Step 2: Check balance with retries (uses common helper)
-	if err := s.client.VerifyBalance(ctx, requiredBalance, "instance"); err != nil {
-		return nil, err
-	}
-
-	// Step 3: Create with retries for transient errors
-	var createErr error
-	var result *APIResponse
-	maxRetries := 3
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result, createErr = s.Create(ctx, req)
-		if createErr == nil {
-			return result, nil
-		}
-
-		// Retry on transient balance errors
-		if IsInsufficientBalance(createErr) {
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt*3) * time.Second)
-				continue
-			}
-		}
-		break
-	}
-
-	return nil, createErr
+	return safeCreate(ctx, s.client, safeCreateConfig[*APIResponse]{
+		resourceType: "instance",
+		preview:      func(ctx context.Context) (map[string]interface{}, error) { return s.Preview(ctx, req) },
+		create:       func(ctx context.Context) (*APIResponse, error) { return s.Create(ctx, req) },
+	})
 }
 
 // Delete deletes an instance and optionally its root volume.
@@ -152,38 +118,18 @@ func (s *InstanceService) Stop(ctx context.Context, instanceID string) (*APIResp
 
 // WaitForStatus waits for an instance to reach a specific status.
 func (s *InstanceService) WaitForStatus(ctx context.Context, instanceID string, targetStatus InstanceStatus, timeout time.Duration) (*Instance, error) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for instance %s to reach status %s", instanceID, targetStatus)
-		case <-ticker.C:
-			// Use FindByID which uses List - more reliable than Get during BUILD
-			instance, err := s.FindByID(ctx, instanceID)
-			if err != nil {
-				return nil, err
-			}
-			if instance == nil {
-				continue // Instance not found yet, keep waiting
-			}
-
-			currentStatus := instance.GetStatus()
-
-			if currentStatus == targetStatus {
-				return instance, nil
-			}
-
-			if currentStatus == InstanceStatusError {
-				return nil, fmt.Errorf("instance %s entered ERROR state", instanceID)
-			}
-		}
-	}
+	return pollUntil(ctx, pollConfig[Instance]{
+		interval: 10 * time.Second,
+		timeout:  timeout,
+		// Use FindByID which uses List - more reliable than Get during BUILD.
+		fetch: func(ctx context.Context) (*Instance, error) { return s.FindByID(ctx, instanceID) },
+		done:  func(i *Instance) bool { return i.GetStatus() == targetStatus },
+		failed: func(i *Instance) bool {
+			return i.GetStatus() == InstanceStatusError
+		},
+		timeoutMsg: fmt.Sprintf("timeout waiting for instance %s to reach status %s", instanceID, targetStatus),
+		failedMsg:  fmt.Sprintf("instance %s entered ERROR state", instanceID),
+	})
 }
 
 // FindByID finds an instance by ID using the List function.

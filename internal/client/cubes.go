@@ -232,35 +232,12 @@ func (s *CubeService) Create(ctx context.Context, req *CubeCreateRequest) error 
 // SafeCreate creates a cube with the same safety checks as instances:
 // preview cost, verify balance, then create with retries.
 func (s *CubeService) SafeCreate(ctx context.Context, req *CubeCreateRequest) error {
-	preview, err := s.Preview(ctx, req)
-	if err != nil {
-		return fmt.Errorf("preview failed (API may be having issues, aborting to protect against unwanted charges): %w", err)
-	}
-
-	requiredBalance := ExtractCostFromPreview(preview)
-	if requiredBalance <= 0 {
-		return fmt.Errorf("unable to determine cost from preview response (API may be having issues, aborting to protect against unwanted charges)")
-	}
-
-	if err := s.client.VerifyBalance(ctx, requiredBalance, "cube"); err != nil {
-		return err
-	}
-
-	var createErr error
-	maxRetries := 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		createErr = s.Create(ctx, req)
-		if createErr == nil {
-			return nil
-		}
-		if IsInsufficientBalance(createErr) && attempt < maxRetries {
-			time.Sleep(time.Duration(attempt*3) * time.Second)
-			continue
-		}
-		break
-	}
-
-	return createErr
+	_, err := safeCreate(ctx, s.client, safeCreateConfig[struct{}]{
+		resourceType: "cube",
+		preview:      func(ctx context.Context) (map[string]interface{}, error) { return s.Preview(ctx, req) },
+		create:       func(ctx context.Context) (struct{}, error) { return struct{}{}, s.Create(ctx, req) },
+	})
+	return err
 }
 
 // GetProject returns the user's cube project (quota container).
@@ -329,31 +306,14 @@ func (s *CubeService) Delete(ctx context.Context, projectID, instanceName string
 // list endpoint are tolerated while waiting because the API returns 403
 // during provisioning.
 func (s *CubeService) WaitForStatus(ctx context.Context, projectID, instanceName, targetStatus string, timeout time.Duration) (*Cube, error) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for cube %s to reach status %s", instanceName, targetStatus)
-		case <-ticker.C:
-			cube, err := s.FindByName(ctx, projectID, instanceName)
-			if err != nil {
-				continue // 403 while provisioning — keep waiting
-			}
-			if cube == nil {
-				continue
-			}
-			if strings.EqualFold(cube.Status, targetStatus) {
-				return cube, nil
-			}
-			if strings.EqualFold(cube.Status, "Error") {
-				return nil, fmt.Errorf("cube %s entered Error state", instanceName)
-			}
-		}
-	}
+	return pollUntil(ctx, pollConfig[Cube]{
+		interval:         10 * time.Second,
+		timeout:          timeout,
+		fetch:            func(ctx context.Context) (*Cube, error) { return s.FindByName(ctx, projectID, instanceName) },
+		tolerateFetchErr: true, // 403 while provisioning — keep waiting
+		done:             func(c *Cube) bool { return strings.EqualFold(c.Status, targetStatus) },
+		failed:           func(c *Cube) bool { return strings.EqualFold(c.Status, "Error") },
+		timeoutMsg:       fmt.Sprintf("timeout waiting for cube %s to reach status %s", instanceName, targetStatus),
+		failedMsg:        fmt.Sprintf("cube %s entered Error state", instanceName),
+	})
 }

@@ -265,47 +265,16 @@ func (r *NetworkResource) ImportState(ctx context.Context, req resource.ImportSt
 }
 
 func (r *NetworkResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	// Skip if destroying or no client configured
-	if req.Plan.Raw.IsNull() || r.client == nil {
-		return
-	}
-
-	var plan NetworkResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Only calculate cost for new resources.
-	var state NetworkResourceModel
-	req.State.Get(ctx, &state)
-	if !state.ID.IsNull() {
-		return
-	}
-
-	// Terraform may call ModifyPlan again during apply as unknown values become
-	// known. Preserve an already-planned cost so a time-sensitive prorated API
-	// preview cannot change the final plan and fail the apply.
-	if !plan.MonthlyCost.IsNull() && !plan.MonthlyCost.IsUnknown() {
-		return
-	}
-
-	previewReq := &client.NetworkCreateRequest{
-		BandwidthLimit: int(plan.BandwidthLimit.ValueInt64()),
-	}
-
-	preview, err := r.client.Networks.Preview(ctx, previewReq)
-	if err != nil {
-		tflog.Warn(ctx, "Unable to get network cost preview during plan", map[string]any{"error": err.Error()})
-		return
-	}
-
-	if preview != nil {
-		cost := client.ExtractCostFromPreview(preview)
-		if cost > 0 {
-			plan.MonthlyCost = types.Float64Value(cost)
-			resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-			tflog.Info(ctx, "Network estimated monthly cost", map[string]any{"cost_rs": cost})
-		}
-	}
+	applyCostPreview(ctx, r.client, req, resp,
+		func(m *NetworkResourceModel) types.String { return m.ID },
+		func(m *NetworkResourceModel) types.Float64 { return m.MonthlyCost },
+		func(m *NetworkResourceModel, cost types.Float64) { m.MonthlyCost = cost },
+		func(ctx context.Context, plan *NetworkResourceModel) (map[string]interface{}, error) {
+			previewReq := &client.NetworkCreateRequest{
+				BandwidthLimit: int(plan.BandwidthLimit.ValueInt64()),
+			}
+			return r.client.Networks.Preview(ctx, previewReq)
+		},
+		"network",
+	)
 }

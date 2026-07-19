@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/matifali/terraform-provider-nayatel/internal/client"
 )
@@ -99,4 +101,60 @@ func identifyCreated[T any](ctx context.Context, existing map[string]struct{}, w
 	}
 
 	return nil, nil
+}
+
+// applyCostPreview implements the ModifyPlan cost-preview logic shared by
+// every billable resource: skip if destroying, no client, already created,
+// or already planned (Terraform may re-run ModifyPlan during apply as
+// unknown values resolve; a time-sensitive prorated preview must not change
+// an already-planned cost and fail the apply) — otherwise call preview and
+// set monthly_cost on the plan. getID/getMonthlyCost/setMonthlyCost let this
+// work across each resource's distinct Model type without reflection.
+func applyCostPreview[T any](
+	ctx context.Context,
+	c *client.Client,
+	req resource.ModifyPlanRequest,
+	resp *resource.ModifyPlanResponse,
+	getID func(*T) types.String,
+	getMonthlyCost func(*T) types.Float64,
+	setMonthlyCost func(*T, types.Float64),
+	preview func(context.Context, *T) (map[string]interface{}, error),
+	logName string,
+) {
+	if req.Plan.Raw.IsNull() || c == nil {
+		return
+	}
+
+	var plan T
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var state T
+	req.State.Get(ctx, &state)
+	if !getID(&state).IsNull() {
+		return
+	}
+
+	if cost := getMonthlyCost(&plan); !cost.IsNull() && !cost.IsUnknown() {
+		return
+	}
+
+	previewResp, err := preview(ctx, &plan)
+	if err != nil {
+		tflog.Warn(ctx, fmt.Sprintf("Unable to get %s cost preview during plan", logName), map[string]any{"error": err.Error()})
+		return
+	}
+
+	if previewResp == nil {
+		return
+	}
+
+	cost := client.ExtractCostFromPreview(previewResp)
+	if cost > 0 {
+		setMonthlyCost(&plan, types.Float64Value(cost))
+		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+		tflog.Info(ctx, fmt.Sprintf("%s estimated monthly cost", logName), map[string]any{"cost_rs": cost})
+	}
 }

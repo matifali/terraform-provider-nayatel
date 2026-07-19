@@ -321,14 +321,13 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	tflog.Debug(ctx, "Stopping instance before deletion", map[string]any{"id": data.ID.ValueString()})
 
-	// Stop instance first
+	// Stop instance first. Delete itself blocks server-side until the
+	// instance actually stops, so no client-side wait is needed here
+	// (confirmed live: Delete succeeds immediately after Stop returns).
 	_, err := r.client.Instances.Stop(ctx, data.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		tflog.Warn(ctx, "Failed to stop instance", map[string]any{"error": err.Error()})
 	}
-
-	// Wait a bit for instance to stop
-	time.Sleep(10 * time.Second)
 
 	tflog.Debug(ctx, "Deleting instance", map[string]any{"id": data.ID.ValueString()})
 
@@ -346,50 +345,18 @@ func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportS
 }
 
 func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	// Skip if destroying or no client configured
-	if req.Plan.Raw.IsNull() || r.client == nil {
-		return
-	}
-
-	var plan InstanceResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Only calculate cost for new resources (no state ID).
-	var state InstanceResourceModel
-	req.State.Get(ctx, &state)
-	if !state.ID.IsNull() {
-		return
-	}
-
-	// Terraform may call ModifyPlan again during apply as unknown values become
-	// known. Preserve an already-planned cost so a time-sensitive prorated API
-	// preview cannot change the final plan and fail the apply.
-	if !plan.MonthlyCost.IsNull() && !plan.MonthlyCost.IsUnknown() {
-		return
-	}
-
-	// Build preview request from plan values
-	previewReq := &client.InstanceCreateRequest{
-		CPU:  int(plan.CPU.ValueInt64()),
-		RAM:  int(plan.RAM.ValueInt64()),
-		Disk: int(plan.Disk.ValueInt64()),
-	}
-
-	preview, err := r.client.Instances.Preview(ctx, previewReq)
-	if err != nil {
-		tflog.Warn(ctx, "Unable to get cost preview during plan", map[string]any{"error": err.Error()})
-		return
-	}
-
-	if preview != nil {
-		cost := client.ExtractCostFromPreview(preview)
-		if cost > 0 {
-			plan.MonthlyCost = types.Float64Value(cost)
-			resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-			tflog.Info(ctx, "Instance estimated monthly cost", map[string]any{"cost_rs": cost})
-		}
-	}
+	applyCostPreview(ctx, r.client, req, resp,
+		func(m *InstanceResourceModel) types.String { return m.ID },
+		func(m *InstanceResourceModel) types.Float64 { return m.MonthlyCost },
+		func(m *InstanceResourceModel, cost types.Float64) { m.MonthlyCost = cost },
+		func(ctx context.Context, plan *InstanceResourceModel) (map[string]interface{}, error) {
+			previewReq := &client.InstanceCreateRequest{
+				CPU:  int(plan.CPU.ValueInt64()),
+				RAM:  int(plan.RAM.ValueInt64()),
+				Disk: int(plan.Disk.ValueInt64()),
+			}
+			return r.client.Instances.Preview(ctx, previewReq)
+		},
+		"instance",
+	)
 }

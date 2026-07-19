@@ -746,6 +746,55 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 	return nil
 }
 
+// safeCreateConfig configures safeCreate: preview cost, verify balance, then
+// create with retries on transient insufficient-balance errors.
+type safeCreateConfig[T any] struct {
+	resourceType string // used only in error messages (VerifyBalance, preview failure)
+	preview      func(context.Context) (map[string]interface{}, error)
+	create       func(context.Context) (T, error)
+}
+
+// safeCreate implements the preview/verify-balance/retry-on-insufficient-balance
+// safety wrapper shared by every billable resource's Safe* method: preview
+// cost (abort if the preview itself fails or returns no usable cost), verify
+// account balance (with its own retry for the API's 0-balance glitch), then
+// create with up to 3 attempts, retrying only on a transient insufficient-
+// balance error.
+func safeCreate[T any](ctx context.Context, c *Client, cfg safeCreateConfig[T]) (T, error) {
+	var zero T
+
+	preview, err := cfg.preview(ctx)
+	if err != nil {
+		return zero, fmt.Errorf("preview failed (API may be having issues, aborting to protect against unwanted charges): %w", err)
+	}
+
+	requiredBalance := ExtractCostFromPreview(preview)
+	if requiredBalance <= 0 {
+		return zero, fmt.Errorf("unable to determine cost from preview response (API may be having issues, aborting to protect against unwanted charges)")
+	}
+
+	if err := c.VerifyBalance(ctx, requiredBalance, cfg.resourceType); err != nil {
+		return zero, err
+	}
+
+	var result T
+	var createErr error
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result, createErr = cfg.create(ctx)
+		if createErr == nil {
+			return result, nil
+		}
+		if IsInsufficientBalance(createErr) && attempt < maxRetries {
+			time.Sleep(time.Duration(attempt*3) * time.Second)
+			continue
+		}
+		break
+	}
+
+	return zero, createErr
+}
+
 func apiErrorMessage(respBody []byte) string {
 	var payload struct {
 		Message string `json:"message"`

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // FloatingIPService handles floating IP operations.
@@ -63,45 +62,11 @@ func (s *FloatingIPService) SafeAllocate(ctx context.Context, count int) (*APIRe
 		count = 1
 	}
 
-	// Step 1: Get required cost from preview API
-	preview, err := s.Preview(ctx, count)
-	if err != nil {
-		return nil, fmt.Errorf("preview failed (API may be having issues, aborting to protect against unwanted charges): %w", err)
-	}
-
-	// Extract prorated cost from preview response
-	requiredBalance := ExtractCostFromPreview(preview)
-	if requiredBalance <= 0 {
-		return nil, fmt.Errorf("unable to determine cost from preview response (API may be having issues, aborting to protect against unwanted charges)")
-	}
-
-	// Step 2: Check balance with retries (uses common helper)
-	if err := s.client.VerifyBalance(ctx, requiredBalance, "floating IP"); err != nil {
-		return nil, err
-	}
-
-	// Step 3: Allocate with retries for transient errors
-	var allocErr error
-	var apiResp *APIResponse
-	maxRetries := 3
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		apiResp, allocErr = s.Allocate(ctx, count)
-		if allocErr == nil {
-			return apiResp, nil
-		}
-
-		// Retry on transient balance errors
-		if IsInsufficientBalance(allocErr) {
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt*3) * time.Second)
-				continue
-			}
-		}
-		break
-	}
-
-	return nil, allocErr
+	return safeCreate(ctx, s.client, safeCreateConfig[*APIResponse]{
+		resourceType: "floating IP",
+		preview:      func(ctx context.Context) (map[string]interface{}, error) { return s.Preview(ctx, count) },
+		create:       func(ctx context.Context) (*APIResponse, error) { return s.Allocate(ctx, count) },
+	})
 }
 
 // ExtractCostFromPreview extracts the cost from various API preview response formats.

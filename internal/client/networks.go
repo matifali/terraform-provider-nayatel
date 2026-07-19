@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // NetworkService handles network operations.
@@ -72,45 +71,11 @@ func (s *NetworkService) Preview(ctx context.Context, req *NetworkCreateRequest)
 // 2. Checks account balance with retries (handles Nayatel API 0 balance glitch)
 // 3. Only then proceeds with creation (with retries for transient errors).
 func (s *NetworkService) SafeCreate(ctx context.Context, req *NetworkCreateRequest) (*NetworkCreateResponse, error) {
-	// Step 1: Get required cost from preview API
-	preview, err := s.Preview(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("preview failed (API may be having issues, aborting to protect against unwanted charges): %w", err)
-	}
-
-	// Extract prorated cost from preview response
-	requiredBalance := ExtractCostFromPreview(preview)
-	if requiredBalance <= 0 {
-		return nil, fmt.Errorf("unable to determine cost from preview response (API may be having issues, aborting to protect against unwanted charges)")
-	}
-
-	// Step 2: Check balance with retries (uses common helper)
-	if err := s.client.VerifyBalance(ctx, requiredBalance, "network"); err != nil {
-		return nil, err
-	}
-
-	// Step 3: Create with retries for transient errors
-	var createErr error
-	var result *NetworkCreateResponse
-	maxRetries := 3
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result, createErr = s.Create(ctx, req)
-		if createErr == nil {
-			return result, nil
-		}
-
-		// Retry on transient balance errors
-		if IsInsufficientBalance(createErr) {
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt*3) * time.Second)
-				continue
-			}
-		}
-		break
-	}
-
-	return nil, createErr
+	return safeCreate(ctx, s.client, safeCreateConfig[*NetworkCreateResponse]{
+		resourceType: "network",
+		preview:      func(ctx context.Context) (map[string]interface{}, error) { return s.Preview(ctx, req) },
+		create:       func(ctx context.Context) (*NetworkCreateResponse, error) { return s.Create(ctx, req) },
+	})
 }
 
 // Delete deletes a network.

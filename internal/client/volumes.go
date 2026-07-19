@@ -194,35 +194,17 @@ func (s *VolumeService) Extend(ctx context.Context, volumeID string, addSize int
 
 // WaitForStatus waits for a volume to reach a specific status.
 func (s *VolumeService) WaitForStatus(ctx context.Context, volumeID string, targetStatus string, timeout time.Duration) (*Volume, error) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for volume %s to reach status %s", volumeID, targetStatus)
-		case <-ticker.C:
-			volume, err := s.Get(ctx, volumeID)
-			if err != nil {
-				return nil, err
-			}
-			if volume == nil {
-				return nil, fmt.Errorf("volume %s not found while waiting for status %s", volumeID, targetStatus)
-			}
-
-			if volume.Status == targetStatus {
-				return volume, nil
-			}
-
-			if volume.Status == "error" {
-				return nil, fmt.Errorf("volume %s entered error state", volumeID)
-			}
-		}
-	}
+	return pollUntil(ctx, pollConfig[Volume]{
+		interval:        5 * time.Second,
+		timeout:         timeout,
+		fetch:           func(ctx context.Context) (*Volume, error) { return s.Get(ctx, volumeID) },
+		notFoundIsFatal: true,
+		done:            func(v *Volume) bool { return v.Status == targetStatus },
+		failed:          func(v *Volume) bool { return v.Status == "error" },
+		timeoutMsg:      fmt.Sprintf("timeout waiting for volume %s to reach status %s", volumeID, targetStatus),
+		notFoundMsg:     fmt.Sprintf("volume %s not found while waiting for status %s", volumeID, targetStatus),
+		failedMsg:       fmt.Sprintf("volume %s entered error state", volumeID),
+	})
 }
 
 // ResolveAttachedInstanceID returns the ID of the instance a volume is
