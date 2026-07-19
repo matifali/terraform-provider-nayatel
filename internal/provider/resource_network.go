@@ -105,6 +105,16 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		BandwidthLimit: int(data.BandwidthLimit.ValueInt64()),
 	}
 
+	// Cost must be previewed before creation: Nayatel rejects a preview for
+	// a bandwidth tier that a network already occupies, so calling Preview
+	// after this network exists returns a 400 for the very tier it just took.
+	monthlyCost := types.Float64Null()
+	if previewResp, err := r.client.Networks.Preview(ctx, createReq); err == nil {
+		if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
+			monthlyCost = types.Float64Value(cost)
+		}
+	}
+
 	// Snapshot existing networks first: the create API returns only a
 	// status message, so the new network is identified by diffing the
 	// list. Taking the list's last entry would misidentify the created
@@ -154,16 +164,7 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		data.SubnetCIDR = types.StringValue("")
 	}
 
-	// monthly_cost comes out of the plan as unknown (ModifyPlan only warns
-	// with an estimate, it never commits a plan value - see
-	// applyCostPreview), so it must be resolved to a concrete number here:
-	// State, unlike Plan, can never contain unknown values.
-	data.MonthlyCost = types.Float64Null()
-	if previewResp, err := r.client.Networks.Preview(ctx, createReq); err == nil {
-		if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
-			data.MonthlyCost = types.Float64Value(cost)
-		}
-	}
+	data.MonthlyCost = monthlyCost
 
 	tflog.Trace(ctx, "Created network", map[string]any{"id": data.ID.ValueString()})
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
