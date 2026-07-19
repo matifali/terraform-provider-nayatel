@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mathrand "math/rand/v2"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -34,6 +35,24 @@ const (
 	// tokenExpiryBuffer is the time before actual expiry when we consider token expired.
 	// This ensures we refresh tokens before they actually expire.
 	tokenExpiryBuffer = 5 * time.Minute
+)
+
+// maxTransientRetries is how many extra attempts a retryable GET/DELETE gets
+// after transient errors (network errors, 429, 5xx). Nayatel's API
+// occasionally 500s (its WAF rate-limiting) or drops a connection
+// mid-response; these are otherwise-healthy requests worth retrying.
+//
+// retryBaseDelay and retryMaxDelay bound the exponential backoff: delay for
+// attempt n is a random duration in [0, min(retryBaseDelay*2^n, retryMaxDelay)).
+// Full jitter (rather than a fixed exponential delay) keeps concurrent
+// retries from re-synchronizing against the same rate limit.
+//
+// These are vars, not consts, so tests can shrink them and run in
+// milliseconds instead of seconds.
+var (
+	maxTransientRetries = 3
+	retryBaseDelay      = 1 * time.Second
+	retryMaxDelay       = 8 * time.Second
 )
 
 // cachedToken represents a cached JWT token with metadata.
@@ -451,32 +470,55 @@ func (c *Client) Request(ctx context.Context, method, endpoint string, body inte
 		return respBody, resp.StatusCode, nil
 	}
 
-	respBody, statusCode, err := doRequest()
+	// attempt performs one full round trip, including the CSRF-refresh-once
+	// and reauth-once handling below. It is retried as a unit on a
+	// transient failure so those don't consume separate backoff attempts.
+	attempt := func() ([]byte, int, error) {
+		respBody, statusCode, err := doRequest()
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if shouldRetryCSRF(statusCode, respBody) {
+			if err := c.ensureCSRFToken(ctx, true); err != nil {
+				return nil, 0, fmt.Errorf("failed to refresh CSRF token: %w", err)
+			}
+
+			respBody, statusCode, err = doRequest()
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+
+		// A 401 means the token expired mid-session; re-authenticate once and retry.
+		if statusCode == http.StatusUnauthorized && c.reauth != nil {
+			if err := c.refreshAuth(ctx, usedToken); err != nil {
+				return nil, 0, fmt.Errorf("authentication expired and %w", err)
+			}
+
+			respBody, statusCode, err = doRequest()
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+
+		return respBody, statusCode, nil
+	}
+
+	respBody, statusCode, err := attempt()
+	if isRetryableMethod(method) {
+		for i := 0; i < maxTransientRetries; i++ {
+			if !isTransientError(err) && !isRetryableStatus(statusCode) {
+				break
+			}
+			if waitErr := waitForRetry(ctx, i); waitErr != nil {
+				return nil, waitErr
+			}
+			respBody, statusCode, err = attempt()
+		}
+	}
 	if err != nil {
 		return nil, err
-	}
-
-	if shouldRetryCSRF(statusCode, respBody) {
-		if err := c.ensureCSRFToken(ctx, true); err != nil {
-			return nil, fmt.Errorf("failed to refresh CSRF token: %w", err)
-		}
-
-		respBody, statusCode, err = doRequest()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// A 401 means the token expired mid-session; re-authenticate once and retry.
-	if statusCode == http.StatusUnauthorized && c.reauth != nil {
-		if err := c.refreshAuth(ctx, usedToken); err != nil {
-			return nil, fmt.Errorf("authentication expired and %w", err)
-		}
-
-		respBody, statusCode, err = doRequest()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	if statusCode < 200 || statusCode >= 300 {
@@ -513,30 +555,48 @@ func (c *Client) ensureCSRFToken(ctx context.Context, force bool) error {
 	return nil
 }
 
+// fetchCSRFToken fetches a CSRF token, retrying transient failures with
+// backoff: this is a GET run before every request's CSRF check, so a
+// spurious 500 here would otherwise abort work that never reached the API.
 func fetchCSRFToken(ctx context.Context, httpClient *http.Client, baseURL string) (string, error) {
 	if err := ensureCookieJar(httpClient); err != nil {
 		return "", err
 	}
 
+	token, statusCode, err := fetchCSRFTokenOnce(ctx, httpClient, baseURL)
+	for i := 0; i < maxTransientRetries; i++ {
+		if !isTransientError(err) && !isRetryableStatus(statusCode) {
+			break
+		}
+		if waitErr := waitForRetry(ctx, i); waitErr != nil {
+			return "", waitErr
+		}
+		token, statusCode, err = fetchCSRFTokenOnce(ctx, httpClient, baseURL)
+	}
+
+	return token, err
+}
+
+func fetchCSRFTokenOnce(ctx context.Context, httpClient *http.Client, baseURL string) (string, int, error) {
 	csrfURL := fmt.Sprintf("%s/csrf-token", strings.TrimRight(baseURL, "/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, csrfURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create CSRF request: %w", err)
+		return "", 0, fmt.Errorf("failed to create CSRF request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("CSRF request failed: %w", err)
+		return "", 0, fmt.Errorf("CSRF request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if message := apiErrorMessage(body); message != "" {
-			return "", fmt.Errorf("CSRF request failed (status %d): %s", resp.StatusCode, message)
+			return "", resp.StatusCode, fmt.Errorf("CSRF request failed (status %d): %s", resp.StatusCode, message)
 		}
-		return "", fmt.Errorf("CSRF request failed (status %d)", resp.StatusCode)
+		return "", resp.StatusCode, fmt.Errorf("CSRF request failed (status %d)", resp.StatusCode)
 	}
 
 	token := resp.Header.Get("X-CSRF-Token")
@@ -552,16 +612,16 @@ func fetchCSRFToken(ctx context.Context, httpClient *http.Client, baseURL string
 	if token == "" {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if err != nil {
-			return "", fmt.Errorf("failed to read CSRF response body: %w", err)
+			return "", resp.StatusCode, fmt.Errorf("failed to read CSRF response body: %w", err)
 		}
 		token = csrfTokenFromJSON(body)
 	}
 
 	if token == "" {
-		return "", fmt.Errorf("no CSRF token in response")
+		return "", resp.StatusCode, fmt.Errorf("no CSRF token in response")
 	}
 
-	return token, nil
+	return token, resp.StatusCode, nil
 }
 
 func csrfTokenFromJSON(respBody []byte) string {
@@ -600,6 +660,57 @@ func isCSRFError(respBody []byte) bool {
 		strings.Contains(body, "cross-site request forgery") ||
 		strings.Contains(body, "token mismatch") ||
 		strings.Contains(body, "page expired")
+}
+
+// isRetryableMethod reports whether method is safe to retry after a
+// transient failure. Nayatel's create/attach/detach endpoints are all POST
+// with no idempotency token, and creates are identified after the fact by
+// diffing resource lists (see identifyCreated) - a retried POST could leave
+// a second billable resource that diff can't distinguish from the first. GET
+// and DELETE don't have that risk, so only those get retried.
+func isRetryableMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodDelete
+}
+
+// isRetryableStatus reports whether statusCode is a transient failure worth
+// retrying: rate-limiting or a server-side error, never a 4xx that reflects
+// something wrong with the request itself.
+func isRetryableStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// isTransientError reports whether err (from an HTTP round trip, not a
+// status code) looks like a transient network failure worth retrying.
+// Context cancellation/deadline errors are never retried.
+func isTransientError(err error) bool {
+	return err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+}
+
+// retryBackoffDelay returns a full-jitter exponential backoff delay for the
+// given zero-indexed retry attempt.
+func retryBackoffDelay(attempt int) time.Duration {
+	backoff := retryBaseDelay * time.Duration(int64(1)<<uint(attempt))
+	if backoff <= 0 || backoff > retryMaxDelay {
+		backoff = retryMaxDelay
+	}
+	return time.Duration(mathrand.Int64N(int64(backoff)))
+}
+
+// waitForRetry blocks for the backoff delay of the given attempt, returning
+// ctx.Err() if the context ends first.
+func waitForRetry(ctx context.Context, attempt int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(retryBackoffDelay(attempt)):
+		return nil
+	}
 }
 
 // Get makes a GET request.

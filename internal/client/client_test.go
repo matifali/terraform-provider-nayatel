@@ -336,6 +336,225 @@ func TestRequestDoesNotRetryNonCSRFForbidden(t *testing.T) {
 	}
 }
 
+// shrinkRetryBackoff overrides the package's retry timing so tests exercise
+// the retry loop in milliseconds instead of seconds.
+func shrinkRetryBackoff(t *testing.T) {
+	t.Helper()
+
+	origRetries, origBase, origMax := maxTransientRetries, retryBaseDelay, retryMaxDelay
+	maxTransientRetries, retryBaseDelay, retryMaxDelay = 3, time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() {
+		maxTransientRetries, retryBaseDelay, retryMaxDelay = origRetries, origBase, origMax
+	})
+}
+
+func countingCSRFHandler(calls *atomic.Int32) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.SetCookie(w, &http.Cookie{Name: "csrf-token", Value: "csrf-1", Path: "/"})
+		w.Header().Set("x-csrf-token", "csrf-1")
+		_, _ = w.Write([]byte(`{"token":"csrf-1"}`))
+	}
+}
+
+func TestRequestRetriesGetOn5xxThenSucceeds(t *testing.T) {
+	shrinkRetryBackoff(t)
+	ctx := context.Background()
+
+	var csrfCalls, apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			countingCSRFHandler(&csrfCalls)(w, r)
+		case "/api/flaky":
+			call := apiCalls.Add(1)
+			if call < 3 {
+				http.Error(w, "upstream blip", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	resp, err := c.Get(ctx, "/flaky")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got, want := string(resp), `{"ok":true}`; got != want {
+		t.Fatalf("response = %s, want %s", got, want)
+	}
+	if got := apiCalls.Load(); got != 3 {
+		t.Fatalf("api calls = %d, want 3", got)
+	}
+}
+
+func TestRequestDoesNotRetryPostOn5xx(t *testing.T) {
+	shrinkRetryBackoff(t)
+	ctx := context.Background()
+
+	var csrfCalls, apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			countingCSRFHandler(&csrfCalls)(w, r)
+		case "/api/create":
+			apiCalls.Add(1)
+			http.Error(w, "upstream blip", http.StatusServiceUnavailable)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	_, err := c.Post(ctx, "/create", struct{}{})
+	if err == nil {
+		t.Fatalf("Post returned nil error, want APIError")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", apiErr.StatusCode, http.StatusServiceUnavailable)
+	}
+	// A non-idempotent create must never be retried: Nayatel has no
+	// idempotency token, so a retried POST could double-create.
+	if got := apiCalls.Load(); got != 1 {
+		t.Fatalf("api calls = %d, want 1 (POST must not be retried)", got)
+	}
+}
+
+func TestRequestRetriesDeleteOnTransientNetworkError(t *testing.T) {
+	shrinkRetryBackoff(t)
+	ctx := context.Background()
+
+	var csrfCalls, apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			countingCSRFHandler(&csrfCalls)(w, r)
+		case "/api/volume":
+			call := apiCalls.Add(1)
+			if call < 2 {
+				// Simulate a dropped connection (e.g. WAF reset) rather
+				// than a well-formed HTTP response.
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					t.Fatal("ResponseWriter does not support hijacking")
+				}
+				conn, _, err := hj.Hijack()
+				if err != nil {
+					t.Fatalf("hijack failed: %v", err)
+				}
+				conn.Close()
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	resp, err := c.Delete(ctx, "/volume", nil)
+	if err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	if got, want := string(resp), `{"ok":true}`; got != want {
+		t.Fatalf("response = %s, want %s", got, want)
+	}
+	if got := apiCalls.Load(); got != 2 {
+		t.Fatalf("api calls = %d, want 2", got)
+	}
+}
+
+func TestRequestStopsRetryingOnContextCancel(t *testing.T) {
+	shrinkRetryBackoff(t)
+
+	var csrfCalls, apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			countingCSRFHandler(&csrfCalls)(w, r)
+		case "/api/flaky":
+			apiCalls.Add(1)
+			http.Error(w, "upstream blip", http.StatusServiceUnavailable)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	_, err := c.Get(ctx, "/flaky")
+	if err == nil {
+		t.Fatal("Get returned nil error, want context cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestFetchCSRFTokenRetriesOn5xx(t *testing.T) {
+	shrinkRetryBackoff(t)
+	ctx := context.Background()
+
+	var csrfCalls, apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/csrf-token":
+			call := csrfCalls.Add(1)
+			if call < 3 {
+				http.Error(w, "upstream blip", http.StatusInternalServerError)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{Name: "csrf-token", Value: "csrf-1", Path: "/"})
+			w.Header().Set("x-csrf-token", "csrf-1")
+			_, _ = w.Write([]byte(`{"token":"csrf-1"}`))
+		case "/api/resource":
+			apiCalls.Add(1)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
+	resp, err := c.Get(ctx, "/resource")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if got, want := string(resp), `{"ok":true}`; got != want {
+		t.Fatalf("response = %s, want %s", got, want)
+	}
+	if got := csrfCalls.Load(); got != 3 {
+		t.Fatalf("csrf calls = %d, want 3", got)
+	}
+	if got := apiCalls.Load(); got != 1 {
+		t.Fatalf("api calls = %d, want 1", got)
+	}
+}
+
 func TestNewClientWithLoginUsesCSRFFormFlow(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	ctx := context.Background()
