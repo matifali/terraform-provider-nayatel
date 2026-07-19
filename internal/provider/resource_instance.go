@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -46,6 +48,8 @@ type InstanceResourceModel struct {
 	PublicIP       types.String  `tfsdk:"public_ip"`
 	PrivateIP      types.String  `tfsdk:"private_ip"`
 	MonthlyCost    types.Float64 `tfsdk:"monthly_cost"`
+
+	DeleteRootVolumeOnDestroy types.Bool `tfsdk:"delete_root_volume_on_destroy"`
 }
 
 func (r *InstanceResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -140,6 +144,12 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 			"monthly_cost": schema.Float64Attribute{
 				MarkdownDescription: "Estimated monthly cost in Rs. for the current billing cycle",
 				Computed:            true,
+			},
+			"delete_root_volume_on_destroy": schema.BoolAttribute{
+				MarkdownDescription: "Whether to delete the instance's root volume when the instance is destroyed. Defaults to `true`. A kept root volume keeps billing and the Nayatel portal has no UI to delete it, so only set this to `false` if you intend to manage the volume yourself via the API.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(true),
 			},
 		},
 	}
@@ -313,6 +323,24 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
+	// Null/unknown means state written by a provider version that predates
+	// the attribute; those destroys always deleted the root volume.
+	deleteRootVolume := true
+	if !data.DeleteRootVolumeOnDestroy.IsNull() && !data.DeleteRootVolumeOnDestroy.IsUnknown() {
+		deleteRootVolume = data.DeleteRootVolumeOnDestroy.ValueBool()
+	}
+
+	// The root volume must be identified before the instance is deleted:
+	// afterwards it detaches and is indistinguishable from any other loose
+	// volume. Managed data volumes are already detached at this point
+	// (their nayatel_volume_attachment depends on the instance, so
+	// Terraform destroys it first), leaving the root volume as the only
+	// bootable volume still attached.
+	var rootVolumeID string
+	if deleteRootVolume {
+		rootVolumeID = r.findAttachedRootVolumeID(ctx, data.Name.ValueString())
+	}
+
 	tflog.Debug(ctx, "Stopping instance before deletion", map[string]any{"id": data.ID.ValueString()})
 
 	// Stop instance first. Delete itself blocks server-side until the
@@ -325,13 +353,112 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	tflog.Debug(ctx, "Deleting instance", map[string]any{"id": data.ID.ValueString()})
 
-	_, err = r.client.Instances.Delete(ctx, data.ID.ValueString())
+	apiResp, err := r.client.Instances.DeleteWithOptions(ctx, data.ID.ValueString(), deleteRootVolume)
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete instance: %s", err))
 		return
 	}
+	if apiResp != nil && !apiResp.Status && apiResp.Message != "" {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete instance: %s", apiResp.Message))
+		return
+	}
+
+	if deleteRootVolume && rootVolumeID != "" {
+		r.ensureRootVolumeDeleted(ctx, rootVolumeID, &resp.Diagnostics)
+	}
 
 	tflog.Trace(ctx, "Deleted instance", map[string]any{"id": data.ID.ValueString()})
+}
+
+// findAttachedRootVolumeID returns the ID of the bootable volume attached to
+// the named instance, or "" if it can't be identified unambiguously. Lookup
+// failures are logged, not fatal: the volume ID is only needed to verify the
+// API's own root-volume deletion afterwards.
+func (r *InstanceResource) findAttachedRootVolumeID(ctx context.Context, instanceName string) string {
+	volumes, err := r.client.Volumes.List(ctx)
+	if err != nil {
+		tflog.Warn(ctx, "Unable to list volumes to identify root volume; skipping post-delete verification", map[string]any{"error": err.Error()})
+		return ""
+	}
+
+	var matches []string
+	for _, v := range volumes {
+		if v.Bootable == "true" && v.GetAttachedInstanceID() == instanceName {
+			matches = append(matches, v.ID)
+		}
+	}
+
+	if len(matches) != 1 {
+		if len(matches) > 1 {
+			tflog.Warn(ctx, "Multiple bootable volumes attached to instance; skipping post-delete root volume verification", map[string]any{"volume_ids": matches})
+		}
+		return ""
+	}
+
+	return matches[0]
+}
+
+// ensureRootVolumeDeleted verifies the root volume is gone after an instance
+// delete with delete_root_volume=true. The API has been observed to accept
+// the flag yet leave the volume behind (confirmed live 2026-07-19: detached,
+// still billed, and the portal has no UI to delete a volume), so if the
+// volume settles as a detached leftover it is deleted directly here.
+func (r *InstanceResource) ensureRootVolumeDeleted(ctx context.Context, volumeID string, diags *diag.Diagnostics) {
+	const (
+		pollInterval = 5 * time.Second
+		pollTimeout  = 2 * time.Minute
+	)
+
+	leakWarning := func(detail string) {
+		diags.AddWarning(
+			"Root Volume May Be Leaked",
+			fmt.Sprintf("The instance was deleted, but its root volume %s could not be confirmed deleted (%s). "+
+				"The Nayatel portal has no UI to delete a volume, so if it still exists it keeps billing until removed via the API.", volumeID, detail),
+		)
+	}
+
+	deadline := time.Now().Add(pollTimeout)
+	fallbackTried := false
+	for {
+		volume, err := r.client.Volumes.Get(ctx, volumeID)
+		if err != nil {
+			leakWarning(fmt.Sprintf("checking it failed: %s", err))
+			return
+		}
+		if volume == nil {
+			tflog.Trace(ctx, "Root volume deleted", map[string]any{"volume_id": volumeID})
+			return
+		}
+
+		// "available" means the instance is gone and the volume is just
+		// sitting there detached - the API is not going to delete it
+		// anymore, so do it directly. Errors here are non-fatal; the API
+		// may still be tearing the volume down, and the poll below settles
+		// the outcome either way.
+		if !fallbackTried && volume.Status == "available" {
+			fallbackTried = true
+			tflog.Warn(ctx, "Root volume survived instance deletion; deleting it directly", map[string]any{"volume_id": volumeID})
+			if _, err := r.client.Volumes.Delete(ctx, volumeID); err != nil {
+				tflog.Warn(ctx, "Direct root volume delete failed", map[string]any{"volume_id": volumeID, "error": err.Error()})
+			} else {
+				// Volume deletes complete synchronously (confirmed live
+				// 2026-07-19), so re-check without waiting a poll interval.
+				continue
+			}
+		}
+
+		if time.Now().After(deadline) {
+			leakWarning(fmt.Sprintf("still present with status %q after %s", volume.Status, pollTimeout))
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			leakWarning(fmt.Sprintf("verification interrupted: %s", ctx.Err()))
+			return
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

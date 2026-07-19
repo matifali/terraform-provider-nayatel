@@ -67,6 +67,10 @@ terraform destroy
 
 -> Nayatel router-interface detach can be unreliable, so this example sets `force_delete_network_on_destroy = true` on its router because it owns the disposable example network. Do not set that on a router attached to a shared or pre-existing network.
 
+### No leaked resources after destroy
+
+Destroying an instance also deletes its root volume by default (`delete_root_volume_on_destroy = true`), and the provider verifies the volume is actually gone — the Nayatel API has been observed to leave it behind, where it keeps billing with no way to remove it from the portal UI. If you ever delete an instance from the portal instead of Terraform, check your volume list afterwards: a leftover root volume shows up as a bootable volume named `default` with status `available`.
+
 ## Full configuration
 
 {{tffile "examples/main.tf"}}

@@ -17,4 +17,9 @@ resource "nayatel_instance" "web" {
   disk            = 20
   network_id      = nayatel_network.main.id
   ssh_fingerprint = nayatel_ssh_key.main.fingerprint
+
+  # The root volume is deleted with the instance by default (and the
+  # provider verifies it, since a kept volume keeps billing and the portal
+  # has no UI to remove it). Set to false only to manage it yourself.
+  delete_root_volume_on_destroy = true
 }

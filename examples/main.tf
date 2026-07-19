@@ -154,6 +154,10 @@ resource "nayatel_instance" "web" {
   network_id      = nayatel_network.main.id
   ssh_fingerprint = nayatel_ssh_key.terraform.fingerprint
 
+  # The root volume is deleted (and verified deleted) with the instance.
+  # A kept root volume keeps billing and the portal has no UI to remove it.
+  delete_root_volume_on_destroy = true
+
   # Explicit dependency ensures:
   # - Create: router and SG exist before the instance
   # - Destroy: instance is deleted before SG (API requirement)
