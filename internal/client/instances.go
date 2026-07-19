@@ -57,10 +57,7 @@ func (s *InstanceService) Preview(ctx context.Context, req *InstanceCreateReques
 	return preview, nil
 }
 
-// SafeCreate creates an instance with safety checks:
-// 1. Calls Preview API to get prorated cost (aborts if fails)
-// 2. Checks account balance with retries (handles Nayatel API 0 balance glitch)
-// 3. Only then proceeds with creation (with retries for transient errors).
+// SafeCreate creates an instance via the safeCreate preview/verify-balance wrapper.
 func (s *InstanceService) SafeCreate(ctx context.Context, req *InstanceCreateRequest) (*APIResponse, error) {
 	return safeCreate(ctx, s.client, safeCreateConfig[*APIResponse]{
 		resourceType: "instance",

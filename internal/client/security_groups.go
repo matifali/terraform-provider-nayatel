@@ -79,14 +79,14 @@ func (s *SecurityGroupService) FindByName(ctx context.Context, name string) (*Se
 		return nil, err
 	}
 
-	// First try exact match
 	for _, sg := range securityGroups {
 		if sg.Name == name {
 			return &sg, nil
 		}
 	}
 
-	// Then try prefix match (API may add suffix like "-331")
+	// No exact match: the API may have appended a suffix like "-331" to the
+	// requested name, so fall back to a prefix match on "<name>-".
 	for _, sg := range securityGroups {
 		if len(sg.Name) > len(name) && sg.Name[:len(name)] == name && sg.Name[len(name)] == '-' {
 			return &sg, nil

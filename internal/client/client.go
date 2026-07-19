@@ -29,11 +29,10 @@ const (
 	// regularly take over 30 seconds, so this must stay generous.
 	DefaultTimeout = 120 * time.Second
 
-	// tokenCacheDir is the directory name for caching tokens.
 	tokenCacheDir = "nayatel"
 
-	// tokenExpiryBuffer is the time before actual expiry when we consider token expired.
-	// This ensures we refresh tokens before they actually expire.
+	// tokenExpiryBuffer is how long before actual expiry a token is treated
+	// as expired, so it gets refreshed rather than failing mid-request.
 	tokenExpiryBuffer = 5 * time.Minute
 )
 
@@ -64,7 +63,6 @@ type cachedToken struct {
 
 // getTokenCachePath returns the path to the token cache file for a given username.
 func getTokenCachePath(username string) (string, error) {
-	// Use XDG_CONFIG_HOME if set, otherwise ~/.config
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
 		homeDir, err := os.UserHomeDir()
@@ -87,9 +85,8 @@ func parseJWTExpiry(token string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid JWT format")
 	}
 
-	// Decode the payload (second part)
 	payload := parts[1]
-	// Add padding if needed for base64 decoding
+	// JWT payloads are unpadded base64url; re-add padding before decoding.
 	switch len(payload) % 4 {
 	case 2:
 		payload += "=="
@@ -99,7 +96,6 @@ func parseJWTExpiry(token string) (time.Time, error) {
 
 	decoded, err := base64.URLEncoding.DecodeString(payload)
 	if err != nil {
-		// Try standard encoding
 		decoded, err = base64.StdEncoding.DecodeString(payload)
 		if err != nil {
 			return time.Time{}, fmt.Errorf("failed to decode JWT payload: %w", err)
@@ -126,7 +122,6 @@ func isTokenValid(token string) bool {
 	if err != nil {
 		return false
 	}
-	// Consider token expired if it's within the buffer time of expiry
 	return time.Now().Add(tokenExpiryBuffer).Before(expiry)
 }
 
@@ -147,18 +142,15 @@ func loadCachedToken(username string) (string, error) {
 
 	var cached cachedToken
 	if unmarshalErr := json.Unmarshal(data, &cached); unmarshalErr != nil {
-		// Invalid cache file, delete it.
 		os.Remove(cachePath)
 		return "", fmt.Errorf("failed to parse token cache: %w", unmarshalErr)
 	}
 
-	// Verify the cached token is for the right user and still valid
 	if cached.Username != username {
 		return "", nil
 	}
 
 	if !isTokenValid(cached.Token) {
-		// Token expired, delete cache
 		os.Remove(cachePath)
 		return "", nil
 	}
@@ -173,13 +165,11 @@ func saveCachedToken(username, token string) error {
 		return err
 	}
 
-	// Create cache directory if it doesn't exist
 	cacheDir := filepath.Dir(cachePath)
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	// Get expiry time from token
 	expiresAt, err := parseJWTExpiry(token)
 	if err != nil {
 		// If we can't parse expiry, still cache but with 0 expiry (will check token validity on load)
@@ -197,7 +187,6 @@ func saveCachedToken(username, token string) error {
 		return fmt.Errorf("failed to marshal token cache: %w", err)
 	}
 
-	// Write with restricted permissions (owner read/write only)
 	if err := os.WriteFile(cachePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write token cache: %w", err)
 	}
@@ -331,7 +320,6 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 		},
 	}
 
-	// Apply options
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -341,7 +329,6 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 	}
 	_ = ensureCookieJar(c.HTTPClient)
 
-	// Initialize services
 	c.Instances = &InstanceService{client: c}
 	c.Networks = &NetworkService{client: c}
 	c.Routers = &RouterService{client: c}
@@ -360,7 +347,6 @@ func NewClient(username, token string, opts ...ClientOption) *Client {
 // It will use a cached token if available and still valid, otherwise authenticate
 // and cache the new token for future use.
 func NewClientWithLogin(ctx context.Context, username, password string, opts ...ClientOption) (*Client, error) {
-	// Try to load cached token first
 	cachedToken, err := loadCachedToken(username)
 	if err != nil {
 		// Ignore cache read errors and continue with fresh authentication.
@@ -392,7 +378,7 @@ func NewClientWithLogin(ctx context.Context, username, password string, opts ...
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
-	// Cache the new token (ignore errors - caching is best effort)
+	// Caching is best effort; ignore write errors.
 	_ = saveCachedToken(username, token)
 
 	c.Token = token
@@ -826,7 +812,7 @@ func (c *Client) GetBalance(ctx context.Context) (*BalanceInfo, error) {
 // This is a common safety check used by all billable resource allocations.
 func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, resourceType string) error {
 	if requiredAmount <= 0 {
-		return nil // No cost verification needed
+		return nil
 	}
 
 	maxChecks := 3
@@ -839,16 +825,16 @@ func (c *Client) VerifyBalance(ctx context.Context, requiredAmount float64, reso
 
 		effectiveBalance := balance.Balance + balance.AvailableCredit
 		if effectiveBalance >= requiredAmount {
-			return nil // Balance is sufficient
+			return nil
 		}
 
-		// If balance shows 0, it might be a glitch - wait and retry
+		// A 0 balance is sometimes an API glitch rather than a real balance;
+		// wait and re-check before failing.
 		if balance.Balance == 0 && check < maxChecks {
 			time.Sleep(time.Duration(check*3) * time.Second)
 			continue
 		}
 
-		// Insufficient balance after retries
 		return fmt.Errorf("insufficient balance for %s: required Rs. %.2f, available Rs. %.2f. "+
 			"If you believe you have sufficient balance, this may be a temporary Nayatel API issue. "+
 			"Please verify at https://cloud.nayatel.com/billing", resourceType, requiredAmount, effectiveBalance)

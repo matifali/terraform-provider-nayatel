@@ -213,7 +213,6 @@ func (s *RouterService) GetProviderNetworkID(ctx context.Context) (string, error
 		return "", fmt.Errorf("failed to decode networks: %w", err)
 	}
 
-	// Find Provider Network
 	for _, net := range result.Networks {
 		if net.Name == "Provider Network" {
 			return net.ID, nil

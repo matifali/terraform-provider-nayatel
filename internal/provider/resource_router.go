@@ -98,7 +98,6 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	tflog.Debug(ctx, "Creating router")
 
-	// Get Provider Network ID automatically
 	providerNetworkID, err := r.client.Routers.GetProviderNetworkID(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to get Provider Network ID: %s", err))
@@ -153,7 +152,6 @@ func (r *RouterResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	// Add interface to connect private subnet
 	tflog.Debug(ctx, "Attaching subnet to router", map[string]any{"subnet_id": data.SubnetID.ValueString()})
 	_, err = r.client.Routers.AddInterface(ctx, data.ID.ValueString(), data.SubnetID.ValueString())
 	if err != nil {

@@ -55,7 +55,6 @@ func (s *SSHKeyService) Create(ctx context.Context, req *SSHKeyCreateRequest) (*
 		return nil, err
 	}
 
-	// Try to decode the response
 	var result struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`

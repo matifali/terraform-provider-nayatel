@@ -358,12 +358,10 @@ func (r *SecurityGroupRuleCreateRequest) ToAPIPayload() map[string]interface{} {
 		"cidrSg":    "CIDR",
 	}
 
-	// Determine ruleName based on port/protocol or use provided name
 	if ruleName := resolveRuleName(r.RuleName, r.PortNumber, r.Protocol); ruleName != "" {
 		payload["ruleName"] = ruleName
 	}
 
-	// When we have a port number, open the specific port
 	if r.PortNumber != "" {
 		payload["openPort"] = true
 		payload["portNumber"] = r.PortNumber
@@ -402,7 +400,7 @@ func resolveRuleName(name, port, protocol string) string {
 		case "icmp", "ICMP":
 			return "All ICMP"
 		default:
-			return "Custom TCP Rule" // Default to TCP
+			return "Custom TCP Rule"
 		}
 	}
 	switch protocol {
@@ -551,19 +549,19 @@ func (v *Volume) GetAttachedInstanceID() string {
 type VolumeCreateRequest struct {
 	Name             string `json:"name,omitempty"`
 	Description      string `json:"description,omitempty"`
-	Size             int    `json:"size"`                        // in GB
-	VolumeType       string `json:"volume_type,omitempty"`       // optional
-	AvailabilityZone string `json:"availability_zone,omitempty"` // optional
-	SnapshotID       string `json:"snapshot_id,omitempty"`       // create from snapshot
-	SourceVolumeID   string `json:"source_volid,omitempty"`      // create from volume
-	ImageID          string `json:"image_id,omitempty"`          // create bootable volume from image
+	Size             int    `json:"size"` // in GB
+	VolumeType       string `json:"volume_type,omitempty"`
+	AvailabilityZone string `json:"availability_zone,omitempty"`
+	SnapshotID       string `json:"snapshot_id,omitempty"`  // create from snapshot
+	SourceVolumeID   string `json:"source_volid,omitempty"` // create from volume
+	ImageID          string `json:"image_id,omitempty"`     // create bootable volume from image
 }
 
 // VolumeAttachRequest represents a request to attach a volume to an instance.
 type VolumeAttachRequest struct {
 	VolumeID   string `json:"volume_id"`
 	InstanceID string `json:"instance_id"`
-	Device     string `json:"device,omitempty"` // optional, e.g., "/dev/vdb"
+	Device     string `json:"device,omitempty"` // e.g., "/dev/vdb"
 }
 
 // APIResponse is a generic API response.

@@ -53,10 +53,7 @@ func (s *FloatingIPService) Allocate(ctx context.Context, count int) (*APIRespon
 	return &apiResp, nil
 }
 
-// SafeAllocate allocates floating IP(s) with safety checks:
-// 1. Calls Preview API to get prorated cost (aborts if fails)
-// 2. Checks account balance with retries (handles Nayatel API 0 balance glitch)
-// 3. Only then proceeds with allocation (with retries for transient errors).
+// SafeAllocate allocates floating IP(s) via the safeCreate preview/verify-balance wrapper.
 func (s *FloatingIPService) SafeAllocate(ctx context.Context, count int) (*APIResponse, error) {
 	if count == 0 {
 		count = 1

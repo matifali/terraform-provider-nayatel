@@ -22,7 +22,6 @@ import (
 	"github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
-// Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &CubeResource{}
 var _ resource.ResourceWithImportState = &CubeResource{}
 
@@ -30,12 +29,10 @@ func NewCubeResource() resource.Resource {
 	return &CubeResource{}
 }
 
-// CubeResource defines the resource implementation.
 type CubeResource struct {
 	resourceWithClient
 }
 
-// CubeResourceModel describes the resource data model.
 type CubeResourceModel struct {
 	ID           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
@@ -192,8 +189,6 @@ func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	tflog.Debug(ctx, "Creating cube", map[string]any{"name": createReq.Name})
 
-	// SafeCreate does preview check, balance verification, and creation with
-	// retries - all with safety checks to avoid unwanted charges
 	if err := r.client.Cubes.SafeCreate(ctx, createReq); err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create cube: %s", err))
 		return
@@ -227,7 +222,6 @@ func (r *CubeResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 
-	// data.ID is already set from the early save above.
 	data.ProjectID = types.StringValue(project.Name)
 	data.Status = types.StringValue(cube.Status)
 	if publicIP := cube.GetPublicIP(); publicIP != "" {

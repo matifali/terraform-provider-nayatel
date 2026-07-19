@@ -18,10 +18,8 @@ import (
 	"github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
-// Ensure NayatelProvider satisfies various provider interfaces.
 var _ provider.Provider = &NayatelProvider{}
 
-// NayatelProvider defines the provider implementation.
 type NayatelProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
@@ -29,7 +27,6 @@ type NayatelProvider struct {
 	version string
 }
 
-// NayatelProviderModel describes the provider data model.
 type NayatelProviderModel struct {
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
@@ -110,11 +107,9 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	// Get values from config or environment
 	username := getConfigOrEnv(config.Username, "NAYATEL_USERNAME")
 	password := getConfigOrEnv(config.Password, "NAYATEL_PASSWORD")
 
-	// Validate configuration
 	if authDiag := validateAuthenticationConfig(username, password); authDiag != nil {
 		resp.Diagnostics.AddAttributeError(
 			authDiag.attribute,
@@ -124,7 +119,6 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	// Login with username/password
 	tflog.Debug(ctx, "Authenticating with username/password")
 	nayatelClient, err := client.NewClientWithLogin(ctx, username, password)
 	if err != nil {
@@ -138,7 +132,6 @@ func (p *NayatelProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	tflog.Info(ctx, "Configured Nayatel client", map[string]any{"username": username})
 
-	// Make the client available to resources and data sources
 	resp.DataSourceData = nayatelClient
 	resp.ResourceData = nayatelClient
 }

@@ -127,8 +127,6 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 	existing := snapshotIDs(before, func(n client.Network) string { return n.ID })
 
-	// SafeCreate does preview check, balance verification (with retry for 0 balance glitch),
-	// and creation with retries - all with safety checks to avoid unwanted charges
 	_, err = r.client.Networks.SafeCreate(ctx, createReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create network: %s", err))
@@ -199,7 +197,7 @@ func (r *NetworkResource) Read(ctx context.Context, req resource.ReadRequest, re
 		data.SubnetCIDR = types.StringValue(network.SubnetCIDR)
 	}
 
-	// Preserve monthly_cost from state
+	// monthly_cost doesn't change after creation; keep the state value.
 	if data.MonthlyCost.IsNull() || data.MonthlyCost.IsUnknown() {
 		data.MonthlyCost = types.Float64Null()
 	}
@@ -215,18 +213,15 @@ func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	// Networks cannot be updated in-place, but we need to refresh computed values
-	// Read current state to get the ID
+	// Networks cannot be updated in-place; just refresh the computed values.
 	var state NetworkResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Keep the ID from state
 	data.ID = state.ID
 
-	// Fetch the network from API to get actual computed values
 	network, err := r.client.Networks.FindByID(ctx, data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read network: %s", err))

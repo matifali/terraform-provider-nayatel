@@ -88,7 +88,6 @@ func (r *SecurityGroupAttachmentResource) Create(ctx context.Context, req resour
 		return
 	}
 
-	// Use the actual API name (may have suffix like "terraform-ssh-925")
 	actualName := sg.Name
 
 	tflog.Debug(ctx, "Attaching security group", map[string]any{
@@ -186,7 +185,6 @@ func (r *SecurityGroupAttachmentResource) Delete(ctx context.Context, req resour
 }
 
 func (r *SecurityGroupAttachmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Import ID format: instance_id:security_group_name
 	parts := strings.Split(req.ID, ":")
 	if len(parts) != 2 {
 		resp.Diagnostics.AddError("Invalid Import ID", "Import ID must be in format: instance_id:security_group_name")

@@ -130,7 +130,6 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 
 	instanceID := data.InstanceID.ValueString()
 
-	// Check if instance already has a floating IP
 	instance, err := r.client.Instances.FindByID(ctx, instanceID)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read instance: %s", err))
@@ -158,21 +157,18 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 
 	tflog.Debug(ctx, "Attaching floating IP to instance", map[string]any{"instance_id": instanceID})
 
-	// Step 1: Try to attach using existing quota first
+	// Attach draws from existing floating IP quota; if that fails (likely no
+	// quota left), allocate more and retry the attach.
 	_, err = r.client.FloatingIPs.Attach(ctx, instanceID)
 	if err != nil {
-		// If attach failed (likely no quota), allocate new quota and retry
 		tflog.Debug(ctx, "Attach failed, allocating new floating IP quota", map[string]any{"error": err.Error()})
 
-		// SafeAllocate does preview check, balance verification (with retry for 0 balance glitch),
-		// and allocation with retries - all with safety checks to avoid unwanted charges
 		_, allocErr := r.client.FloatingIPs.SafeAllocate(ctx, 1)
 		if allocErr != nil {
 			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to allocate floating IP: %s", allocErr))
 			return
 		}
 
-		// Retry attach after allocation
 		_, err = r.client.FloatingIPs.Attach(ctx, instanceID)
 		if err != nil {
 			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to attach floating IP to instance: %s", err))
@@ -180,7 +176,7 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		}
 	}
 
-	// Get the allocated IP address from the instance
+	// The attach response doesn't include the IP; read it off the instance.
 	instance, err = r.client.Instances.FindByID(ctx, instanceID)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read instance: %s", err))
@@ -215,7 +211,6 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	// Find the floating IP details
 	fip, err := r.client.FloatingIPs.FindByIP(ctx, ip)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find floating IP details: %s", err))
@@ -262,7 +257,6 @@ func (r *FloatingIPResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 
 	data.Status = types.StringValue(fip.Status)
-	// Preserve monthly_cost from state
 	if data.MonthlyCost.IsNull() || data.MonthlyCost.IsUnknown() {
 		data.MonthlyCost = types.Float64Null()
 	}
@@ -290,8 +284,7 @@ func (r *FloatingIPResource) Delete(ctx context.Context, req resource.DeleteRequ
 
 	tflog.Info(ctx, "Releasing floating IP", map[string]any{"ip_address": ipAddress, "instance_id": instanceID})
 
-	// Step 1: Detach the floating IP from the instance
-	// The IP must be detached (DOWN state) before it can be released
+	// The IP must be detached (DOWN state) before it can be released.
 	if instanceID != "" {
 		tflog.Debug(ctx, "Detaching floating IP from instance", map[string]any{
 			"ip_address":  ipAddress,
@@ -303,12 +296,10 @@ func (r *FloatingIPResource) Delete(ctx context.Context, req resource.DeleteRequ
 				"error": detachErr.Error(),
 			})
 		}
-		// Wait for detach to complete
+		// Give the detach time to complete before releasing.
 		time.Sleep(3 * time.Second)
 	}
 
-	// Step 2: Release the floating IP with retries
-	// The IP should now be in DOWN state and releasable
 	var releaseErr error
 	for attempt := 1; attempt <= 5; attempt++ {
 		tflog.Debug(ctx, "Attempting to release floating IP", map[string]any{
@@ -343,7 +334,7 @@ func (r *FloatingIPResource) Delete(ctx context.Context, req resource.DeleteRequ
 }
 
 func (r *FloatingIPResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Import by IP address
+	// The import ID is the IP address itself.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("ip_address"), req.ID)...)
 }
 
@@ -465,7 +456,6 @@ func (r *FloatingIPAssociationResource) Create(ctx context.Context, req resource
 		"instance_id": instanceID,
 	})
 
-	// Check if IP is currently attached to another instance
 	fip, err := r.client.FloatingIPs.FindByIP(ctx, floatingIP)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find floating IP %s: %s", floatingIP, err))
@@ -489,7 +479,6 @@ func (r *FloatingIPAssociationResource) Create(ctx context.Context, req resource
 		}
 	}
 
-	// Attach to the new instance
 	_, err = r.client.FloatingIPs.AttachIP(ctx, instanceID, floatingIP)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to attach floating IP: %s", err))
@@ -516,7 +505,6 @@ func (r *FloatingIPAssociationResource) Read(ctx context.Context, req resource.R
 	floatingIP := data.FloatingIP.ValueString()
 	instanceID := data.InstanceID.ValueString()
 
-	// Check if the IP is still attached to the instance
 	fip, err := r.client.FloatingIPs.FindByIP(ctx, floatingIP)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read floating IP: %s", err))
@@ -528,7 +516,6 @@ func (r *FloatingIPAssociationResource) Read(ctx context.Context, req resource.R
 		return
 	}
 
-	// Check if still attached to our instance
 	if fip.PortDetails.DeviceID != instanceID {
 		// IP was moved to another instance or detached
 		resp.State.RemoveResource(ctx)
@@ -564,14 +551,12 @@ func (r *FloatingIPAssociationResource) Delete(ctx context.Context, req resource
 		"release_on_destroy": releaseOnDestroy,
 	})
 
-	// Detach the floating IP
 	_, err := r.client.FloatingIPs.Detach(ctx, instanceID)
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to detach floating IP: %s", err))
 		return
 	}
 
-	// Release if requested
 	if releaseOnDestroy {
 		tflog.Debug(ctx, "Releasing floating IP", map[string]any{"floating_ip": floatingIP})
 		_, err = r.client.FloatingIPs.Release(ctx, floatingIP)
@@ -591,7 +576,6 @@ func (r *FloatingIPAssociationResource) Delete(ctx context.Context, req resource
 }
 
 func (r *FloatingIPAssociationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Import format: instance_id:floating_ip
 	instanceID, floatingIP, found := strings.Cut(req.ID, ":")
 	if !found || instanceID == "" || floatingIP == "" {
 		resp.Diagnostics.AddError(

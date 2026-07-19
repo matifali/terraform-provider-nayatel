@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// TestAccFloatingIPResource_basic tests basic floating IP allocation.
 func TestAccFloatingIPResource_basic(t *testing.T) {
 	sshKeyName := testAccName("tf-acc-fip-key")
 	publicKey := testAccPublicKey(t)
@@ -28,7 +27,6 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
-			// Create and Read testing
 			{
 				Config: testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -43,7 +41,6 @@ func TestAccFloatingIPResource_basic(t *testing.T) {
 	})
 }
 
-// TestAccFloatingIPAssociationResource_basic tests floating IP association.
 func TestAccFloatingIPAssociationResource_basic(t *testing.T) {
 	sshKeyName := testAccName("tf-acc-fip-assoc-key")
 	publicKey := testAccPublicKey(t)
@@ -61,7 +58,6 @@ func TestAccFloatingIPAssociationResource_basic(t *testing.T) {
 		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
-			// Create floating IP and then associate with different instance
 			{
 				Config: testAccFloatingIPAssociationResourceConfig_basic(sshKeyName, publicKey, routerName, bootstrapName, targetName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -74,7 +70,6 @@ func TestAccFloatingIPAssociationResource_basic(t *testing.T) {
 	})
 }
 
-// TestAccFloatingIPAssociationResource_releaseOnDestroy tests the release_on_destroy behavior.
 func TestAccFloatingIPAssociationResource_releaseOnDestroy(t *testing.T) {
 	sshKeyName := testAccName("tf-acc-fip-release-key")
 	publicKey := testAccPublicKey(t)
@@ -107,12 +102,9 @@ func TestAccFloatingIPAssociationResource_releaseOnDestroy(t *testing.T) {
 	})
 }
 
-// Helper function to match positive numbers.
 func regexPositiveNumber() *regexp.Regexp {
 	return regexp.MustCompile(`^([1-9][0-9]*(\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$`)
 }
-
-// Test configurations
 
 func testAccFloatingIPResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`

@@ -20,7 +20,6 @@ import (
 	"github.com/matifali/terraform-provider-nayatel/internal/client"
 )
 
-// Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &InstanceResource{}
 var _ resource.ResourceWithImportState = &InstanceResource{}
 var _ resource.ResourceWithModifyPlan = &InstanceResource{}
@@ -29,12 +28,10 @@ func NewInstanceResource() resource.Resource {
 	return &InstanceResource{}
 }
 
-// InstanceResource defines the resource implementation.
 type InstanceResource struct {
 	resourceWithClient
 }
 
-// InstanceResourceModel describes the resource data model.
 type InstanceResourceModel struct {
 	ID             types.String  `tfsdk:"id"`
 	Name           types.String  `tfsdk:"name"`
@@ -158,7 +155,6 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 
 	tflog.Debug(ctx, "Creating instance", map[string]any{"name": data.Name.ValueString()})
 
-	// Create instance request
 	createReq := &client.InstanceCreateRequest{
 		Name:           data.Name.ValueString(),
 		Description:    data.Description.ValueString(),
@@ -174,19 +170,17 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		createReq.Description = "Nayatel Cloud VPS"
 	}
 
-	// SafeCreate does preview check, balance verification (with retry for 0 balance glitch),
-	// and creation with retries - all with safety checks to avoid unwanted charges
 	_, err := r.client.Instances.SafeCreate(ctx, createReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create instance: %s", err))
 		return
 	}
 
-	// Wait for instance to be created and find it by name
+	// The create response has no instance ID; give the list endpoint a moment
+	// to show the new instance, then find it by name.
 	tflog.Debug(ctx, "Waiting for instance to be created")
 	time.Sleep(5 * time.Second)
 
-	// Find instance by name
 	instance, err := r.client.Instances.FindByName(ctx, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find created instance: %s", err))
@@ -220,7 +214,6 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// Wait for instance to become active
 	tflog.Debug(ctx, "Waiting for instance to become active")
 	instance, err = r.client.Instances.WaitForStatus(ctx, instance.GetID(), client.InstanceStatusActive, 10*time.Minute)
 	if err != nil {
@@ -228,7 +221,6 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// Update state (ID and description are already set from the early save above)
 	data.Status = types.StringValue(string(instance.GetStatus()))
 
 	if publicIP := instance.GetPublicIP(); publicIP != "" {
@@ -266,11 +258,9 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	// Update attributes that can be read from API
 	data.Name = types.StringValue(instance.GetName())
 	data.Status = types.StringValue(string(instance.GetStatus()))
 
-	// Populate CPU, RAM from instance data
 	if instance.CPU > 0 {
 		data.CPU = types.Int64Value(int64(instance.CPU))
 	}
@@ -294,8 +284,7 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		data.PrivateIP = types.StringNull()
 	}
 
-	// Preserve monthly_cost from state (it doesn't change after creation)
-	// If not set, leave it null
+	// monthly_cost doesn't change after creation; keep the state value.
 	if data.MonthlyCost.IsNull() || data.MonthlyCost.IsUnknown() {
 		data.MonthlyCost = types.Float64Null()
 	}
@@ -311,9 +300,8 @@ func (r *InstanceResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	// Instance updates are mostly handled by RequiresReplace
-	// This is a placeholder for any in-place updates
-
+	// All mutable attributes use RequiresReplace, so there is nothing to
+	// update in place.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

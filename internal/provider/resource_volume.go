@@ -189,7 +189,6 @@ func (r *VolumeResource) Create(ctx context.Context, req resource.CreateRequest,
 		data.VolumeType = types.StringValue("")
 	}
 
-	// Wait for volume to become available
 	if volume.Status != "available" && volume.Status != "in-use" {
 		tflog.Debug(ctx, "Waiting for volume to become available")
 		waited, err := r.client.Volumes.WaitForStatus(ctx, volume.ID, "available", 5*time.Minute)
@@ -256,7 +255,6 @@ func (r *VolumeResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	// Check if size increased (volume extension)
 	if data.Size.ValueInt64() > state.Size.ValueInt64() {
 		tflog.Debug(ctx, "Extending volume", map[string]any{
 			"id":       data.ID.ValueString(),
@@ -271,7 +269,6 @@ func (r *VolumeResource) Update(ctx context.Context, req resource.UpdateRequest,
 			return
 		}
 
-		// Wait for volume to become available again
 		volume, err := r.client.Volumes.WaitForStatus(ctx, data.ID.ValueString(), "available", 5*time.Minute)
 		if err != nil {
 			resp.Diagnostics.AddWarning("Volume Status", fmt.Sprintf("Volume extended but status unknown: %s", err))
@@ -296,7 +293,7 @@ func (r *VolumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 	tflog.Debug(ctx, "Deleting volume", map[string]any{"id": data.ID.ValueString()})
 
-	// Check if volume is attached and detach it first
+	// An attached volume must be detached before it can be deleted.
 	volume, err := r.client.Volumes.Get(ctx, data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read volume: %s", err))
@@ -320,7 +317,6 @@ func (r *VolumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 			return
 		}
 
-		// Wait for volume to become available
 		_, err = r.client.Volumes.WaitForStatus(ctx, data.ID.ValueString(), "available", 2*time.Minute)
 		if err != nil {
 			resp.Diagnostics.AddWarning("Volume Status", fmt.Sprintf("Volume detached but status unknown: %s", err))

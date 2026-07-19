@@ -98,7 +98,6 @@ func (r *VolumeAttachmentResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	// Wait for volume to become in-use
 	volume, err := r.client.Volumes.WaitForStatus(ctx, volumeID, "in-use", 5*time.Minute)
 	if err != nil {
 		resp.Diagnostics.AddWarning("Volume Status", fmt.Sprintf("Volume attached but status unknown: %s", err))
@@ -206,7 +205,6 @@ func (r *VolumeAttachmentResource) Delete(ctx context.Context, req resource.Dele
 		return
 	}
 
-	// Wait for volume to become available
 	_, err = r.client.Volumes.WaitForStatus(ctx, volumeID, "available", 2*time.Minute)
 	if err != nil {
 		tflog.Warn(ctx, "Volume detached but status unknown", map[string]any{"error": err.Error()})
@@ -216,7 +214,6 @@ func (r *VolumeAttachmentResource) Delete(ctx context.Context, req resource.Dele
 }
 
 func (r *VolumeAttachmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Import format: volume_id:instance_id
 	volumeID, instanceID, found := strings.Cut(req.ID, ":")
 	if !found || volumeID == "" || instanceID == "" {
 		resp.Diagnostics.AddError(

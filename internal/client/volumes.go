@@ -57,7 +57,6 @@ func (s *VolumeService) Create(ctx context.Context, req *VolumeCreateRequest) (*
 		return nil, err
 	}
 
-	// Build the payload
 	payload := map[string]interface{}{
 		"size": req.Size,
 	}

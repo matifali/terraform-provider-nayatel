@@ -155,7 +155,6 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 
 	tflog.Debug(ctx, "Creating security group", map[string]any{"name": data.Name.ValueString()})
 
-	// Create security group
 	createReq := &client.SecurityGroupCreateRequest{
 		Name:        data.Name.ValueString(),
 		Description: data.Description.ValueString(),
@@ -204,7 +203,6 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	// Create rules
 	var rules []SecurityGroupRuleModel
 	if !data.Rules.IsNull() && !data.Rules.IsUnknown() {
 		resp.Diagnostics.Append(data.Rules.ElementsAs(ctx, &rules, false)...)
@@ -307,9 +305,8 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 				ruleModel.CIDR = types.StringValue("0.0.0.0/0")
 			}
 
-			// Extract port from port_range (format: "80 - 80" or "Any")
+			// Extract the first port from port_range ("80 - 80" or "Any").
 			if apiRule.PortRange != "" && apiRule.PortRange != "Any" {
-				// Extract the first port from "80 - 80" style ranges.
 				port := apiRule.PortRange
 				if i := strings.IndexByte(port, ' '); i >= 0 {
 					port = port[:i]
@@ -351,10 +348,8 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	// Keep the same ID
 	plan.ID = state.ID
 
-	// Check if rules changed
 	if !plan.Rules.Equal(state.Rules) {
 		var planRules, stateRules []SecurityGroupRuleModel
 
@@ -378,7 +373,6 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 				}
 			}
 			if !found {
-				// Add new rule
 				direction := planRule.Direction.ValueString()
 				switch direction {
 				case "ingress":
@@ -418,7 +412,6 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 				}
 			}
 			if !found {
-				// Rule was removed - warn user since API doesn't support deletion
 				tflog.Warn(ctx, "Rule removal not supported by API - rule will remain in cloud but removed from Terraform state", map[string]any{
 					"direction": stateRule.Direction.ValueString(),
 					"port":      stateRule.PortNumber.ValueString(),

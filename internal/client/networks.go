@@ -66,10 +66,7 @@ func (s *NetworkService) Preview(ctx context.Context, req *NetworkCreateRequest)
 	return preview, nil
 }
 
-// SafeCreate creates a network with safety checks:
-// 1. Calls Preview API to get prorated cost (aborts if fails)
-// 2. Checks account balance with retries (handles Nayatel API 0 balance glitch)
-// 3. Only then proceeds with creation (with retries for transient errors).
+// SafeCreate creates a network via the safeCreate preview/verify-balance wrapper.
 func (s *NetworkService) SafeCreate(ctx context.Context, req *NetworkCreateRequest) (*NetworkCreateResponse, error) {
 	return safeCreate(ctx, s.client, safeCreateConfig[*NetworkCreateResponse]{
 		resourceType: "network",

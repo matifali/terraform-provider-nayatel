@@ -34,7 +34,6 @@ func TestSafetyChecks(t *testing.T) {
 	fmt.Println("=== Testing Safety Checks (NO resources will be created) ===")
 	fmt.Println("")
 
-	// Test 1: Balance API
 	fmt.Println("1. Testing Balance API...")
 	balance, err := c.GetBalance(ctx)
 	if err != nil {
@@ -45,7 +44,6 @@ func TestSafetyChecks(t *testing.T) {
 		fmt.Printf("   Effective Balance: Rs. %.2f\n", balance.Balance+balance.AvailableCredit)
 	}
 
-	// Test 2: Floating IP Preview
 	fmt.Println("\n2. Testing Floating IP Preview API...")
 	fipPreview, err := c.FloatingIPs.Preview(ctx, 1)
 	if err != nil {
@@ -58,7 +56,6 @@ func TestSafetyChecks(t *testing.T) {
 		}
 	}
 
-	// Test 3: Network Preview
 	fmt.Println("\n3. Testing Network Preview API...")
 	netReq := &NetworkCreateRequest{BandwidthLimit: 1}
 	netPreview, err := c.Networks.Preview(ctx, netReq)
@@ -76,7 +73,6 @@ func TestSafetyChecks(t *testing.T) {
 		}
 	}
 
-	// Test 4: Instance Preview
 	fmt.Println("\n4. Testing Instance Preview API...")
 	instReq := &InstanceCreateRequest{
 		Name:    "test-preview-only",
@@ -96,7 +92,6 @@ func TestSafetyChecks(t *testing.T) {
 		}
 	}
 
-	// Test 5: VerifyBalance helper
 	fmt.Println("\n5. Testing VerifyBalance helper...")
 	err = c.VerifyBalance(ctx, 100, "test")
 	if err != nil {

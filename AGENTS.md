@@ -93,7 +93,7 @@ go test -v -cover -timeout=120s -parallel=10 ./...
 Useful targeted checks:
 
 ```sh
-go test ./internal/provider -run TestExtractCostFromPreview
+go test ./internal/client -run TestExtractCostFromPreview
 go test -v -run TestSafetyChecks ./internal/client/.
 ```
 
@@ -165,6 +165,25 @@ For local Terraform use, build/install the provider and configure Terraform `dev
 - Preserve existing naming patterns (`NewXResource`, `XResourceModel`, `XService`, `SafeCreate`, `SafeAllocate`).
 - Preserve MPL-2.0 license/header style in files that already use it; for new files, match nearby package conventions.
 - Prefer clear error wrapping with `%w` in client code and concise Terraform diagnostics in provider code.
+
+### Comments
+
+A comment must state something the code cannot: a constraint, a live-API quirk, or the reason a non-obvious choice was made. If deleting the comment loses no information, delete it.
+
+Write comments for:
+- **API quirks and constraints** observed against the live Nayatel API: response-shape variations, ordering requirements (detach before delete), sentinel values (`attached_to: "-"`), endpoints that 403/404 unexpectedly. Say "confirmed live" when it was.
+- **Why a non-obvious choice was made:** why a `time.Sleep` exists, why POST is never retried (no idempotency token → double-billing), why state is persisted early in Create (billed resource must not go untracked), why ModifyPlan never writes `monthly_cost`.
+- **Deliberately empty or odd-looking code:** a no-op `Update` ("all attributes RequiresReplace"), an ignored error ("caching is best effort").
+- **Doc comments on exported identifiers** — required by Go convention, but they must say something beyond the name. `// Extend increases the size by addSize GB; the API takes a delta, not an absolute size.` is good. `// InstanceResource defines the resource implementation.` is noise; on scaffolding types with nothing to add, omit the doc comment entirely.
+
+Never write comments that:
+- **Narrate the next line** — `// Create the request`, `// Apply options`, `// Wait for volume`, `// Find instance by name` above `FindByName(...)`. The code already says it.
+- **Talk to the reviewer instead of the next reader** — `// ID is already set above`, `// Keep the same ID`, "Note: this fixes the bug where...". That belongs in the commit message or PR description.
+- **Restate a helper's own doc comment at the call site.** If `SafeCreate` documents its safety checks, do not repeat them wherever it is called — and do not copy-paste the same doc block across sibling services; write it once on the shared helper and reference it.
+- **Restate struct tags or types** — `// optional` on an `omitempty` field, `// Import by IP address` next to the code that does exactly that.
+- **Label test steps that are self-describing** — `// Create and Read testing`, `// Test 1: Balance API` above a println of the same text, or a test doc comment that only restates the test name.
+
+When a weak comment sits on genuinely subtle code, rewrite it to carry the missing "why" rather than deleting it.
 
 ## Commit and Pull Request Guidelines
 
