@@ -1,3 +1,9 @@
+## 0.0.6
+
+ENHANCEMENTS:
+
+* `nayatel_instance` gains `delete_root_volume_on_destroy` (default `true`): destroying an instance now verifies its root volume was actually deleted and removes it directly if the API left it behind (confirmed live: the API can accept `delete_root_volume=true` yet leak a detached, still-billed volume that the portal UI cannot delete); set it to `false` to keep the root volume and manage it yourself
+
 ## 0.0.5
 
 ENHANCEMENTS:
