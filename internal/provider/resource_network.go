@@ -154,10 +154,15 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		data.SubnetCIDR = types.StringValue("")
 	}
 
-	// A failed cost preview at plan time leaves monthly_cost unknown; state
-	// must not contain unknown values after apply.
-	if data.MonthlyCost.IsUnknown() {
-		data.MonthlyCost = types.Float64Null()
+	// monthly_cost comes out of the plan as unknown (ModifyPlan only warns
+	// with an estimate, it never commits a plan value - see
+	// applyCostPreview), so it must be resolved to a concrete number here:
+	// State, unlike Plan, can never contain unknown values.
+	data.MonthlyCost = types.Float64Null()
+	if previewResp, err := r.client.Networks.Preview(ctx, createReq); err == nil {
+		if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
+			data.MonthlyCost = types.Float64Value(cost)
+		}
 	}
 
 	tflog.Trace(ctx, "Created network", map[string]any{"id": data.ID.ValueString()})
@@ -267,8 +272,6 @@ func (r *NetworkResource) ImportState(ctx context.Context, req resource.ImportSt
 func (r *NetworkResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	applyCostPreview(ctx, r.client, req, resp,
 		func(m *NetworkResourceModel) types.String { return m.ID },
-		func(m *NetworkResourceModel) types.Float64 { return m.MonthlyCost },
-		func(m *NetworkResourceModel, cost types.Float64) { m.MonthlyCost = cost },
 		func(ctx context.Context, plan *NetworkResourceModel) (map[string]interface{}, error) {
 			previewReq := &client.NetworkCreateRequest{
 				BandwidthLimit: int(plan.BandwidthLimit.ValueInt64()),

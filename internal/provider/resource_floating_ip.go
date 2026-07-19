@@ -108,6 +108,19 @@ resource "nayatel_floating_ip_association" "web" {
 	}
 }
 
+// floatingIPMonthlyCost previews the current cost of one floating IP,
+// returning a null value if the preview call fails.
+func floatingIPMonthlyCost(ctx context.Context, c *client.Client) types.Float64 {
+	previewResp, err := c.FloatingIPs.Preview(ctx, 1)
+	if err != nil {
+		return types.Float64Null()
+	}
+	if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
+		return types.Float64Value(cost)
+	}
+	return types.Float64Null()
+}
+
 func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data FloatingIPResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -138,9 +151,7 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 		data.ID = types.StringValue(existingIP)
 		data.IPAddress = types.StringValue(existingIP)
 		data.Status = types.StringValue("ACTIVE")
-		if data.MonthlyCost.IsUnknown() {
-			data.MonthlyCost = types.Float64Null()
-		}
+		data.MonthlyCost = floatingIPMonthlyCost(ctx, r.client)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
@@ -189,9 +200,16 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 	// Persist a minimal identifying state as soon as the IP is known so a
 	// later FindByIP failure doesn't leave an already-billed/attached
 	// floating IP untracked by Terraform.
+	//
+	// monthly_cost comes out of the plan as unknown (ModifyPlan only warns
+	// with an estimate, it never commits a plan value - see
+	// applyCostPreview), so it must be resolved to a concrete number here,
+	// before this first State.Set: State, unlike Plan, can never contain
+	// unknown values.
 	data.ID = types.StringValue(ip)
 	data.IPAddress = types.StringValue(ip)
 	data.Status = types.StringValue("ACTIVE")
+	data.MonthlyCost = floatingIPMonthlyCost(ctx, r.client)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -208,12 +226,6 @@ func (r *FloatingIPResource) Create(ctx context.Context, req resource.CreateRequ
 	if fip != nil {
 		data.ID = types.StringValue(fip.ID)
 		data.Status = types.StringValue(fip.Status)
-	}
-
-	// A failed cost preview at plan time leaves monthly_cost unknown; state
-	// must not contain unknown values after apply.
-	if data.MonthlyCost.IsUnknown() {
-		data.MonthlyCost = types.Float64Null()
 	}
 
 	tflog.Info(ctx, "Floating IP allocated", map[string]any{
@@ -338,8 +350,6 @@ func (r *FloatingIPResource) ImportState(ctx context.Context, req resource.Impor
 func (r *FloatingIPResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	applyCostPreview(ctx, r.client, req, resp,
 		func(m *FloatingIPResourceModel) types.String { return m.ID },
-		func(m *FloatingIPResourceModel) types.Float64 { return m.MonthlyCost },
-		func(m *FloatingIPResourceModel, cost types.Float64) { m.MonthlyCost = cost },
 		func(ctx context.Context, plan *FloatingIPResourceModel) (map[string]interface{}, error) {
 			return r.client.FloatingIPs.Preview(ctx, 1)
 		},

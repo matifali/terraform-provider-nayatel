@@ -53,11 +53,13 @@ func (s *SecurityGroupService) AddToInstance(ctx context.Context, instanceID, gr
 	return &apiResp, nil
 }
 
-// RemoveFromInstance removes a security group from an instance.
+// RemoveFromInstance removes a security group from an instance. Unlike
+// AddToInstance, the live endpoint has no "/add"-style suffix — confirmed
+// directly against the portal UI's own request.
 func (s *SecurityGroupService) RemoveFromInstance(ctx context.Context, instanceID, groupName string) (*APIResponse, error) {
 	payload := map[string]string{"group_name": groupName}
 
-	resp, err := s.client.Post(ctx, fmt.Sprintf("/iaas/instance/%s/security-group/remove", instanceID), payload)
+	resp, err := s.client.Post(ctx, fmt.Sprintf("/iaas/instance/%s/security-group", instanceID), payload)
 	if err != nil {
 		return nil, err
 	}

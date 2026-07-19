@@ -104,20 +104,23 @@ func identifyCreated[T any](ctx context.Context, existing map[string]struct{}, w
 }
 
 // applyCostPreview implements the ModifyPlan cost-preview logic shared by
-// every billable resource: skip if destroying, no client, already created,
-// or already planned (Terraform may re-run ModifyPlan during apply as
-// unknown values resolve; a time-sensitive prorated preview must not change
-// an already-planned cost and fail the apply) — otherwise call preview and
-// set monthly_cost on the plan. getID/getMonthlyCost/setMonthlyCost let this
-// work across each resource's distinct Model type without reflection.
+// every billable resource: on create, it previews the cost and surfaces it
+// as a warning diagnostic. It deliberately never writes monthly_cost onto
+// the plan — Nayatel's cost-preview endpoints are prorated by real time, so
+// the same request seconds apart can legitimately return different numbers,
+// and terraform-plugin-framework re-invokes ModifyPlan a second time mid-
+// apply once formerly-unknown dependencies resolve. A concrete value
+// written by the first call would then conflict with a second, different
+// preview and Terraform would reject the apply with "provider produced
+// inconsistent final plan". Leaving monthly_cost Computed-only means it
+// stays unknown at plan time in either case, and Create sets the real,
+// final value once, after the resource actually exists.
 func applyCostPreview[T any](
 	ctx context.Context,
 	c *client.Client,
 	req resource.ModifyPlanRequest,
 	resp *resource.ModifyPlanResponse,
 	getID func(*T) types.String,
-	getMonthlyCost func(*T) types.Float64,
-	setMonthlyCost func(*T, types.Float64),
 	preview func(context.Context, *T) (map[string]interface{}, error),
 	logName string,
 ) {
@@ -137,24 +140,19 @@ func applyCostPreview[T any](
 		return
 	}
 
-	if cost := getMonthlyCost(&plan); !cost.IsNull() && !cost.IsUnknown() {
-		return
-	}
-
 	previewResp, err := preview(ctx, &plan)
 	if err != nil {
 		tflog.Warn(ctx, fmt.Sprintf("Unable to get %s cost preview during plan", logName), map[string]any{"error": err.Error()})
 		return
 	}
-
 	if previewResp == nil {
 		return
 	}
 
-	cost := client.ExtractCostFromPreview(previewResp)
-	if cost > 0 {
-		setMonthlyCost(&plan, types.Float64Value(cost))
-		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-		tflog.Info(ctx, fmt.Sprintf("%s estimated monthly cost", logName), map[string]any{"cost_rs": cost})
+	if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
+		resp.Diagnostics.AddWarning(
+			fmt.Sprintf("Estimated %s monthly cost", logName),
+			fmt.Sprintf("Approximately Rs. %.2f/month (prorated estimate; final cost is set after apply).", cost),
+		)
 	}
 }

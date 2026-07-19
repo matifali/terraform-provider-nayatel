@@ -203,6 +203,18 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	data.ID = types.StringValue(instance.GetID())
 	data.Status = types.StringValue(string(instance.GetStatus()))
 	data.Description = types.StringValue(createReq.Description)
+
+	// monthly_cost comes out of the plan as unknown (ModifyPlan only warns
+	// with an estimate, it never commits a plan value - see
+	// applyCostPreview), so it must be resolved to a concrete number here:
+	// State, unlike Plan, can never contain unknown values.
+	data.MonthlyCost = types.Float64Null()
+	if previewResp, err := r.client.Instances.Preview(ctx, createReq); err == nil {
+		if cost := client.ExtractCostFromPreview(previewResp); cost > 0 {
+			data.MonthlyCost = types.Float64Value(cost)
+		}
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -229,12 +241,6 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		data.PrivateIP = types.StringValue(privateIP)
 	} else {
 		data.PrivateIP = types.StringNull()
-	}
-
-	// A failed cost preview at plan time leaves monthly_cost unknown; state
-	// must not contain unknown values after apply.
-	if data.MonthlyCost.IsUnknown() {
-		data.MonthlyCost = types.Float64Null()
 	}
 
 	tflog.Trace(ctx, "Created instance", map[string]any{"id": instance.ID})
@@ -347,8 +353,6 @@ func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportS
 func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	applyCostPreview(ctx, r.client, req, resp,
 		func(m *InstanceResourceModel) types.String { return m.ID },
-		func(m *InstanceResourceModel) types.Float64 { return m.MonthlyCost },
-		func(m *InstanceResourceModel, cost types.Float64) { m.MonthlyCost = cost },
 		func(ctx context.Context, plan *InstanceResourceModel) (map[string]interface{}, error) {
 			previewReq := &client.InstanceCreateRequest{
 				CPU:  int(plan.CPU.ValueInt64()),
