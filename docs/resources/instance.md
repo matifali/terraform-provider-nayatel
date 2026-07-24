@@ -54,12 +54,14 @@ resource "nayatel_instance" "web" {
 - `name` (String) Name of the instance. Changing this forces a new resource.
 - `network_id` (String) ID of the network to attach the instance to. Changing this forces a new resource.
 - `ram` (Number) RAM in GB. Changing this forces a new resource.
-- `ssh_fingerprint` (String) SSH key fingerprint for authentication. Changing this forces a new resource.
 
 ### Optional
 
 - `delete_root_volume_on_destroy` (Boolean) Whether to delete the instance's root volume when the instance is destroyed. Defaults to `true`. A kept root volume keeps billing and the Nayatel portal has no UI to delete it, so only set this to `false` if you intend to manage the volume yourself via the API.
 - `description` (String) Description of the instance
+- `password` (String, Sensitive) Password for the instance login user. Exactly one of `ssh_fingerprint` or `password` must be set. Must be at least 8 characters, contain an uppercase letter that is not the first or last character, contain a number, and end in a letter — the API silently ignores non-compliant passwords, leaving the instance with no login path. Changing this forces a new resource.
+- `ssh_fingerprint` (String) SSH key fingerprint for authentication. Exactly one of `ssh_fingerprint` or `password` must be set. Changing this forces a new resource.
+- `username` (String) Login user created on the instance for password authentication. Only valid together with `password`; defaults to the provider account username. Changing this forces a new resource.
 
 ### Read-Only
 

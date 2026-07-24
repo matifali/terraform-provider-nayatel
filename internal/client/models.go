@@ -151,20 +151,37 @@ type InstanceCreateRequest struct {
 	RAM            int    `json:"ram"`  // in GB
 	Disk           int    `json:"disk"` // in GB
 	NetworkID      string `json:"network_id"`
-	SSHFingerprint string `json:"ssh_fingerprint"`
+	SSHFingerprint string `json:"ssh_fingerprint,omitempty"`
+	Password       string `json:"password,omitempty"`
+	AuthUser       string `json:"auth_user,omitempty"`
 	InstanceCount  int    `json:"instance_count,omitempty"`
 }
 
 // ToAPIPayload converts the request to the API payload format.
 func (r *InstanceCreateRequest) ToAPIPayload() map[string]interface{} {
+	// The API silently ignores unknown auth methods (the instance boots with
+	// no login path at all), so only the two shapes captured from the portal
+	// are ever sent: {method: "ssh", fingerprint} and {method: "pwd",
+	// password, user}. The user field becomes the VM's login account.
+	var auth map[string]string
+	if r.Password != "" {
+		auth = map[string]string{
+			"method":   "pwd",
+			"password": r.Password,
+			"user":     r.AuthUser,
+		}
+	} else {
+		auth = map[string]string{
+			"method":      "ssh",
+			"fingerprint": r.SSHFingerprint,
+		}
+	}
+
 	initialization := map[string]interface{}{
 		"name":        r.Name,
 		"description": r.Description,
 		"image":       map[string]string{"id": r.ImageID},
-		"auth": map[string]string{
-			"method":      "ssh",
-			"fingerprint": r.SSHFingerprint,
-		},
+		"auth":        auth,
 		"network_ids": r.NetworkID,
 	}
 
@@ -177,13 +194,21 @@ func (r *InstanceCreateRequest) ToAPIPayload() map[string]interface{} {
 		instanceCount = 1
 	}
 
+	// The portal sends INITIALIZATION as stringified JSON (same as cubes);
+	// keep parity since auth handling with the object form is unverified.
+	initJSON, err := json.Marshal(initialization)
+	initValue := interface{}(string(initJSON))
+	if err != nil {
+		initValue = initialization
+	}
+
 	return map[string]interface{}{
 		"conf": map[string]interface{}{
 			"STORAGE":        r.Disk,
 			"INSTANCE_COUNT": instanceCount,
 			"CPU":            r.CPU,
 			"RAM":            r.RAM,
-			"INITIALIZATION": initialization,
+			"INITIALIZATION": initValue,
 		},
 	}
 }

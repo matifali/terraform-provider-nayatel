@@ -25,6 +25,7 @@ import (
 var _ resource.Resource = &InstanceResource{}
 var _ resource.ResourceWithImportState = &InstanceResource{}
 var _ resource.ResourceWithModifyPlan = &InstanceResource{}
+var _ resource.ResourceWithValidateConfig = &InstanceResource{}
 
 func NewInstanceResource() resource.Resource {
 	return &InstanceResource{}
@@ -44,6 +45,8 @@ type InstanceResourceModel struct {
 	Disk           types.Int64   `tfsdk:"disk"`
 	NetworkID      types.String  `tfsdk:"network_id"`
 	SSHFingerprint types.String  `tfsdk:"ssh_fingerprint"`
+	Password       types.String  `tfsdk:"password"`
+	Username       types.String  `tfsdk:"username"`
 	Status         types.String  `tfsdk:"status"`
 	PublicIP       types.String  `tfsdk:"public_ip"`
 	PrivateIP      types.String  `tfsdk:"private_ip"`
@@ -123,8 +126,23 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 				},
 			},
 			"ssh_fingerprint": schema.StringAttribute{
-				MarkdownDescription: "SSH key fingerprint for authentication. Changing this forces a new resource.",
-				Required:            true,
+				MarkdownDescription: "SSH key fingerprint for authentication. Exactly one of `ssh_fingerprint` or `password` must be set. Changing this forces a new resource.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"password": schema.StringAttribute{
+				MarkdownDescription: "Password for the instance login user. Exactly one of `ssh_fingerprint` or `password` must be set. Must be at least 8 characters, contain an uppercase letter that is not the first or last character, contain a number, and end in a letter — the API silently ignores non-compliant passwords, leaving the instance with no login path. Changing this forces a new resource.",
+				Optional:            true,
+				Sensitive:           true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"username": schema.StringAttribute{
+				MarkdownDescription: "Login user created on the instance for password authentication. Only valid together with `password`; defaults to the provider account username. Changing this forces a new resource.",
+				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -174,6 +192,8 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		Disk:           int(data.Disk.ValueInt64()),
 		NetworkID:      data.NetworkID.ValueString(),
 		SSHFingerprint: data.SSHFingerprint.ValueString(),
+		Password:       data.Password.ValueString(),
+		AuthUser:       data.Username.ValueString(),
 	}
 
 	if createReq.Description == "" {
@@ -463,6 +483,71 @@ func (r *InstanceResource) ensureRootVolumeDeleted(ctx context.Context, volumeID
 
 func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func (r *InstanceResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data InstanceResourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	hasFingerprint := !data.SSHFingerprint.IsNull() && !data.SSHFingerprint.IsUnknown()
+	hasPassword := !data.Password.IsNull() && !data.Password.IsUnknown()
+
+	if hasFingerprint && hasPassword {
+		resp.Diagnostics.AddAttributeError(path.Root("password"), "Conflicting authentication methods",
+			"Exactly one of `ssh_fingerprint` or `password` must be set, not both. The API accepts a single auth method per instance; additional SSH keys can be added to ~/.ssh/authorized_keys after boot.")
+		return
+	}
+	if !hasFingerprint && !hasPassword && !data.SSHFingerprint.IsUnknown() && !data.Password.IsUnknown() {
+		resp.Diagnostics.AddError("Missing authentication method",
+			"Exactly one of `ssh_fingerprint` or `password` must be set.")
+		return
+	}
+
+	if hasPassword {
+		if err := validateInstancePassword(data.Password.ValueString()); err != "" {
+			resp.Diagnostics.AddAttributeError(path.Root("password"), "Invalid instance password", err)
+		}
+	}
+
+	if !data.Username.IsNull() && !data.Username.IsUnknown() && !hasPassword {
+		resp.Diagnostics.AddAttributeError(path.Root("username"), "username requires password",
+			"`username` selects the login user for password authentication and has no effect with `ssh_fingerprint`.")
+	}
+}
+
+// validateInstancePassword enforces the portal's password rules. The API does
+// not validate them: a non-compliant password is silently dropped and the
+// instance boots with no login path at all.
+func validateInstancePassword(pw string) string {
+	if len(pw) < 8 {
+		return "Password must be at least 8 characters long."
+	}
+	hasDigit := false
+	hasInnerUpper := false
+	for i, c := range pw {
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+		}
+		if c >= 'A' && c <= 'Z' && i > 0 && i < len(pw)-1 {
+			hasInnerUpper = true
+		}
+	}
+	if !hasInnerUpper {
+		return "Password must contain an uppercase letter that is not the first or last character."
+	}
+	if !hasDigit {
+		return "Password must contain a number."
+	}
+	last := pw[len(pw)-1]
+	isLetter := (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z')
+	if !isLetter {
+		return "Password must not end in a number or special character."
+	}
+	return ""
 }
 
 func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {

@@ -29,6 +29,12 @@ func (s *InstanceService) List(ctx context.Context) ([]Instance, error) {
 
 // Create creates a new instance.
 func (s *InstanceService) Create(ctx context.Context, req *InstanceCreateRequest) (*APIResponse, error) {
+	// Password auth requires a login user in the payload; the portal always
+	// sends the account username.
+	if req.Password != "" && req.AuthUser == "" {
+		req.AuthUser = s.client.Username
+	}
+
 	resp, err := s.client.Post(ctx, fmt.Sprintf("/iaas/user/%s/project", s.client.Username), req.ToAPIPayload())
 	if err != nil {
 		return nil, err
