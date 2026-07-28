@@ -1,3 +1,10 @@
+## 0.0.7
+
+FEATURES:
+
+* `nayatel_instance` supports password authentication: set `password` instead of `ssh_fingerprint` (exactly one of the two), plus an optional `username` selecting the login user created on the instance (defaults to the account username, confirmed live to accept arbitrary names). Password requirements — at least 8 characters, an uppercase letter that is not the first or last character, a number, ending in a letter — are validated at plan time, because the API silently ignores a non-compliant password and boots an instance with no way to log in
+* New `examples/two-instances-shared-network` example: two password-auth instances on one shared network created in the API-required order, with a floating IP on one and the other reachable only over the private subnet
+
 ## 0.0.6
 
 ENHANCEMENTS:
