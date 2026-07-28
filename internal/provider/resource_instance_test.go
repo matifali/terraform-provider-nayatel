@@ -11,8 +11,6 @@ import (
 )
 
 func TestAccInstanceResource_basic(t *testing.T) {
-	sshKeyName := testAccName("tf-acc-inst-key")
-	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-inst-router")
 	instanceName := testAccName("tf-acc-inst")
 	imageIDExpression := testAccImageIDExpression()
@@ -27,7 +25,7 @@ func TestAccInstanceResource_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression, bandwidth),
+				Config: testAccInstanceResourceConfig_basic(routerName, instanceName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_instance.test", "id"),
 					resource.TestCheckResourceAttr("nayatel_instance.test", "name", instanceName),
@@ -37,7 +35,7 @@ func TestAccInstanceResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttr("nayatel_instance.test", "ram", "2"),
 					resource.TestCheckResourceAttr("nayatel_instance.test", "disk", "20"),
 					resource.TestCheckResourceAttrPair("nayatel_instance.test", "network_id", "nayatel_network.test", "id"),
-					resource.TestCheckResourceAttrPair("nayatel_instance.test", "ssh_fingerprint", "nayatel_ssh_key.test", "fingerprint"),
+					resource.TestCheckResourceAttr("nayatel_instance.test", "password", testAccInstancePassword),
 				),
 			},
 			{
@@ -49,7 +47,8 @@ func TestAccInstanceResource_basic(t *testing.T) {
 					"image_id",
 					"disk",
 					"network_id",
-					"ssh_fingerprint",
+					"password",
+					"username",
 					"monthly_cost",
 				},
 			},
@@ -57,15 +56,10 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	})
 }
 
-func testAccInstanceResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, imageIDExpression string, bandwidth int) string {
+func testAccInstanceResourceConfig_basic(routerName, instanceName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 %s
-resource "nayatel_ssh_key" "test" {
-  name       = %q
-  public_key = %q
-}
-
 resource "nayatel_network" "test" {
   bandwidth_limit = %d
 }
@@ -83,9 +77,9 @@ resource "nayatel_instance" "test" {
   ram             = 2
   disk            = 20
   network_id      = nayatel_network.test.id
-  ssh_fingerprint = nayatel_ssh_key.test.fingerprint
+  password        = %q
 
   depends_on = [nayatel_router.test]
 }
-`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression)
+`, testAccImageDataSourceConfig(), bandwidth, routerName, instanceName, imageIDExpression, testAccInstancePassword)
 }

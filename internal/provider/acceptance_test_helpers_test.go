@@ -35,6 +35,10 @@ func testAccName(prefix string) string {
 	return acctest.RandomWithPrefix(prefix)
 }
 
+// testAccInstancePassword satisfies the API's password rules: min 8 chars,
+// an uppercase letter that is not first or last, a digit, ends in a letter.
+const testAccInstancePassword = "TfAcc7pass2Kx"
+
 func testAccPublicKey(t *testing.T) string {
 	t.Helper()
 

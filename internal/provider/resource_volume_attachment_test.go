@@ -11,8 +11,6 @@ import (
 )
 
 func TestAccVolumeAttachmentResource_basic(t *testing.T) {
-	sshKeyName := testAccName("tf-acc-vol-att-key")
-	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-vol-att-router")
 	instanceName := testAccName("tf-acc-vol-att-inst")
 	volumeName := testAccName("tf-acc-vol-att")
@@ -28,7 +26,7 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageIDExpression, volumeSize, bandwidth),
+				Config: testAccVolumeAttachmentResourceConfig_basic(routerName, instanceName, volumeName, imageIDExpression, volumeSize, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_volume_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_volume_attachment.test", "volume_id", "nayatel_volume.test", "id"),
@@ -46,15 +44,10 @@ func TestAccVolumeAttachmentResource_basic(t *testing.T) {
 	})
 }
 
-func testAccVolumeAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, volumeName, imageIDExpression string, volumeSize int, bandwidth int) string {
+func testAccVolumeAttachmentResourceConfig_basic(routerName, instanceName, volumeName, imageIDExpression string, volumeSize int, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 %s
-resource "nayatel_ssh_key" "test" {
-  name       = %q
-  public_key = %q
-}
-
 resource "nayatel_network" "test" {
   bandwidth_limit = %d
 }
@@ -72,7 +65,7 @@ resource "nayatel_instance" "test" {
   ram             = 2
   disk            = 20
   network_id      = nayatel_network.test.id
-  ssh_fingerprint = nayatel_ssh_key.test.fingerprint
+  password        = %q
 
   depends_on = [nayatel_router.test]
 }
@@ -86,5 +79,5 @@ resource "nayatel_volume_attachment" "test" {
   volume_id   = nayatel_volume.test.id
   instance_id = nayatel_instance.test.id
 }
-`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression, volumeName, volumeSize)
+`, testAccImageDataSourceConfig(), bandwidth, routerName, instanceName, imageIDExpression, testAccInstancePassword, volumeName, volumeSize)
 }

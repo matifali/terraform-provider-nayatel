@@ -33,8 +33,6 @@ func TestAccSecurityGroupResource_basic(t *testing.T) {
 }
 
 func TestAccSecurityGroupAttachmentResource_basic(t *testing.T) {
-	sshKeyName := testAccName("tf-acc-sg-att-key")
-	publicKey := testAccPublicKey(t)
 	routerName := testAccName("tf-acc-sg-att-router")
 	instanceName := testAccName("tf-acc-sg-att-inst")
 	securityGroupName := testAccName("tf-acc-sg-att")
@@ -50,7 +48,7 @@ func TestAccSecurityGroupAttachmentResource_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageIDExpression, bandwidth),
+				Config: testAccSecurityGroupAttachmentResourceConfig_basic(routerName, instanceName, securityGroupName, imageIDExpression, bandwidth),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("nayatel_security_group_attachment.test", "id"),
 					resource.TestCheckResourceAttrPair("nayatel_security_group_attachment.test", "instance_id", "nayatel_instance.test", "id"),
@@ -85,15 +83,10 @@ resource "nayatel_security_group" "test" {
 `, name, description)
 }
 
-func testAccSecurityGroupAttachmentResourceConfig_basic(sshKeyName, publicKey, routerName, instanceName, securityGroupName, imageIDExpression string, bandwidth int) string {
+func testAccSecurityGroupAttachmentResourceConfig_basic(routerName, instanceName, securityGroupName, imageIDExpression string, bandwidth int) string {
 	return fmt.Sprintf(`
 provider "nayatel" {}
 %s
-resource "nayatel_ssh_key" "test" {
-  name       = %q
-  public_key = %q
-}
-
 resource "nayatel_network" "test" {
   bandwidth_limit = %d
 }
@@ -111,7 +104,7 @@ resource "nayatel_instance" "test" {
   ram             = 2
   disk            = 20
   network_id      = nayatel_network.test.id
-  ssh_fingerprint = nayatel_ssh_key.test.fingerprint
+  password        = %q
 
   depends_on = [nayatel_router.test]
 }
@@ -132,5 +125,5 @@ resource "nayatel_security_group_attachment" "test" {
   instance_id         = nayatel_instance.test.id
   security_group_name = nayatel_security_group.test.name
 }
-`, testAccImageDataSourceConfig(), sshKeyName, publicKey, bandwidth, routerName, instanceName, imageIDExpression, securityGroupName)
+`, testAccImageDataSourceConfig(), bandwidth, routerName, instanceName, imageIDExpression, testAccInstancePassword, securityGroupName)
 }
