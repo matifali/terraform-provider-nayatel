@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,7 +23,7 @@ func TestSafetyChecks(t *testing.T) {
 		t.Skip("Set NAYATEL_USERNAME and NAYATEL_PASSWORD to run this test")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	c, err := NewClientWithLogin(ctx, username, password)
 	if err != nil {
 		t.Fatalf("NewClientWithLogin failed: %s", err)

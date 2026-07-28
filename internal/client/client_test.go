@@ -31,7 +31,7 @@ func testJWT(t *testing.T, expiresAt time.Time) string {
 }
 
 func TestRequestFetchesAndSendsCSRFSession(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var apiCalls atomic.Int32
@@ -97,7 +97,7 @@ func TestRequestFetchesAndSendsCSRFSession(t *testing.T) {
 }
 
 func TestRequestReadsCSRFTokenFromJSONBody(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var apiCalls atomic.Int32
@@ -137,7 +137,7 @@ func TestRequestReadsCSRFTokenFromJSONBody(t *testing.T) {
 }
 
 func TestRequestCachesCSRFTokenAcrossRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var apiCalls atomic.Int32
@@ -181,7 +181,7 @@ func TestRequestCachesCSRFTokenAcrossRequests(t *testing.T) {
 }
 
 func TestRequestRefreshesCSRFAndRetriesOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var apiCalls atomic.Int32
@@ -294,7 +294,7 @@ func TestShouldRetryCSRFRecognizesExpiryResponses(t *testing.T) {
 }
 
 func TestRequestDoesNotRetryNonCSRFForbidden(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var apiCalls atomic.Int32
@@ -359,7 +359,7 @@ func countingCSRFHandler(calls *atomic.Int32) http.HandlerFunc {
 
 func TestRequestRetriesGetOn5xxThenSucceeds(t *testing.T) {
 	shrinkRetryBackoff(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls, apiCalls atomic.Int32
 
@@ -396,7 +396,7 @@ func TestRequestRetriesGetOn5xxThenSucceeds(t *testing.T) {
 
 func TestRequestDoesNotRetryPostOn5xx(t *testing.T) {
 	shrinkRetryBackoff(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls, apiCalls atomic.Int32
 
@@ -435,7 +435,7 @@ func TestRequestDoesNotRetryPostOn5xx(t *testing.T) {
 
 func TestRequestRetriesDeleteOnTransientNetworkError(t *testing.T) {
 	shrinkRetryBackoff(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls, apiCalls atomic.Int32
 
@@ -499,7 +499,7 @@ func TestRequestStopsRetryingOnContextCancel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	c := NewClient("user", "api-token", WithBaseURL(server.URL+"/api"), WithHTTPClient(server.Client()))
@@ -514,7 +514,7 @@ func TestRequestStopsRetryingOnContextCancel(t *testing.T) {
 
 func TestFetchCSRFTokenRetriesOn5xx(t *testing.T) {
 	shrinkRetryBackoff(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls, apiCalls atomic.Int32
 
@@ -557,7 +557,7 @@ func TestFetchCSRFTokenRetriesOn5xx(t *testing.T) {
 
 func TestNewClientWithLoginUsesCSRFFormFlow(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var csrfCalls atomic.Int32
 	var authCalls atomic.Int32
@@ -633,7 +633,7 @@ func TestNewClientWithLoginUsesCSRFFormFlow(t *testing.T) {
 
 func TestNewClientWithLoginUsesValidCachedToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	cachedToken := testJWT(t, time.Now().Add(time.Hour))
 	if err := saveCachedToken("cache-user", cachedToken); err != nil {
@@ -662,7 +662,7 @@ func TestNewClientWithLoginUsesValidCachedToken(t *testing.T) {
 
 func TestNewClientWithLoginFallsBackWhenCachedTokenExpired(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := saveCachedToken("cache-user", testJWT(t, time.Now().Add(-time.Hour))); err != nil {
 		t.Fatalf("saveCachedToken returned error: %v", err)

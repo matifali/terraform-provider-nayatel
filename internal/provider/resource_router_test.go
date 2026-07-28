@@ -4,7 +4,6 @@
 package provider
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +28,7 @@ func TestRouterDeleteErrorMentionsActiveInterface(t *testing.T) {
 }
 
 func TestRouterDeleteRetriesInterfaceDetachAfterActiveInterfaceDelete(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var detachCalls int
 	var postDetachCalls int
@@ -88,7 +87,7 @@ func TestRouterDeleteRetriesInterfaceDetachAfterActiveInterfaceDelete(t *testing
 }
 
 func TestRouterDeleteDoesNotDeleteSubnetNetworkWithoutOptIn(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var networkLookupCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +126,7 @@ func TestRouterDeleteDoesNotDeleteSubnetNetworkWithoutOptIn(t *testing.T) {
 }
 
 func TestRouterDeleteFallsBackToDeletingSubnetNetwork(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var detachCalls int
 	var postDetachCalls int

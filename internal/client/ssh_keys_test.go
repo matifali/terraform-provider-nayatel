@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,7 +9,7 @@ import (
 )
 
 func TestSSHKeyDeleteUsesCollectionEndpointAndBody(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	const keyName = "tf-acc-key"
 
 	deleteCalled := false

@@ -4,7 +4,6 @@
 package provider
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -24,7 +23,7 @@ func TestProviderSchemaAuthenticationAttributes(t *testing.T) {
 	t.Parallel()
 
 	var resp frameworkprovider.SchemaResponse
-	(&NayatelProvider{}).Schema(context.Background(), frameworkprovider.SchemaRequest{}, &resp)
+	(&NayatelProvider{}).Schema(t.Context(), frameworkprovider.SchemaRequest{}, &resp)
 
 	passwordAttr, ok := resp.Schema.Attributes["password"].(schema.StringAttribute)
 	if !ok {

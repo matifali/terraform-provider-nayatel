@@ -90,7 +90,7 @@ func testAccPreCheckImagesAvailable(t *testing.T, description string) {
 
 	testAccPreCheck(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*nayatelclient.DefaultTimeout)
 	defer cancel()
 
 	c, err := testAccClientFromEnv(ctx)
@@ -218,7 +218,7 @@ func testAccNetworkBandwidthPreviewError(t *testing.T, bandwidth int) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*nayatelclient.DefaultTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*nayatelclient.DefaultTimeout)
 	defer cancel()
 
 	c, err := testAccClientFromEnv(ctx)

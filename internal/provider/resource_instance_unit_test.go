@@ -4,7 +4,6 @@
 package provider
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -60,7 +59,7 @@ func TestInstanceResourceDeleteKeepsRootVolumeWhenConfigured(t *testing.T) {
 func testInstanceResourceDelete(t *testing.T, deleteRootVolume bool, volumeDeleted, sawDeleteRootVolumeFlag *atomic.Bool) frameworkresource.DeleteResponse {
 	t.Helper()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const (
 		instanceID   = "inst-1"
 		instanceName = "web-server"

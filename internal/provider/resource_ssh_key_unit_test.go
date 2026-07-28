@@ -4,7 +4,6 @@
 package provider
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +32,7 @@ func TestSSHKeyResourceDeleteGenuineNotFoundSucceeds(t *testing.T) {
 func testSSHKeyResourceDeleteWithListResponse(t *testing.T, deleteStatus int, listResponse string) frameworkresource.DeleteResponse {
 	t.Helper()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	const keyName = "tf-acc-key"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

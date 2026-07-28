@@ -4,7 +4,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +32,7 @@ func csrfHandler(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func TestVolumeCreateUsesVolumesEndpoint(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -66,7 +65,7 @@ func TestVolumeCreateUsesVolumesEndpoint(t *testing.T) {
 }
 
 func TestVolumeAttachUsesInstanceScopedEndpoint(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -98,7 +97,7 @@ func TestVolumeAttachUsesInstanceScopedEndpoint(t *testing.T) {
 }
 
 func TestVolumeDetachUsesDeleteOnInstanceScopedEndpoint(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -127,7 +126,7 @@ func TestVolumeDetachUsesDeleteOnInstanceScopedEndpoint(t *testing.T) {
 }
 
 func TestVolumeExtendSendsUpsizeDelta(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -160,7 +159,7 @@ func TestVolumeExtendSendsUpsizeDelta(t *testing.T) {
 }
 
 func TestVolumeDeleteUsesPluralEndpointWithBodyID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -189,7 +188,7 @@ func TestVolumeDeleteUsesPluralEndpointWithBodyID(t *testing.T) {
 }
 
 func TestVolumeCreateReturnsErrorOnStatusFalse(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if csrfHandler(w, r) {
@@ -207,7 +206,7 @@ func TestVolumeCreateReturnsErrorOnStatusFalse(t *testing.T) {
 }
 
 func TestResolveAttachedInstanceIDMapsNameToID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// The volumes list reports the attached instance by name ("attached_to"),
 	// not by ID, so ResolveAttachedInstanceID must cross-reference the
@@ -238,7 +237,7 @@ func TestResolveAttachedInstanceIDMapsNameToID(t *testing.T) {
 }
 
 func TestResolveAttachedInstanceIDErrorsWhenInstanceNameNotFound(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// If the attached instance's name no longer resolves (renamed, deleted,
 	// or a stale attached_to value), ResolveAttachedInstanceID must error
@@ -267,7 +266,7 @@ func TestResolveAttachedInstanceIDErrorsWhenInstanceNameNotFound(t *testing.T) {
 }
 
 func TestVolumeListDecodesBareArrayWithLiveFieldNames(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const listBody = `[
 		{"serial_no":1,"volume_id":"volume-1","name":"tf-test-volume","description":"","size":10,"status":"in-use","volume_type":"ssd","bootable":false,"attached_to":"instance-1"}
@@ -309,7 +308,7 @@ func TestVolumeListDecodesBareArrayWithLiveFieldNames(t *testing.T) {
 // called, and that a missing ID returns (nil, nil), matching the other
 // services' FindByID not-found convention.
 func TestVolumeGetScansListInsteadOfSingularEndpoint(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const listBody = `[{"volume_id":"volume-1","name":"tf-test-volume","size":10,"status":"available","bootable":false,"attached_to":"-"}]`
 

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestRouterRemoveInterfaceUsesDeleteEndpointAndPostRemoveEndpoint(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +60,7 @@ func TestRouterRemoveInterfaceUsesDeleteEndpointAndPostRemoveEndpoint(t *testing
 }
 
 func TestRouterRemoveInterfaceFallsBackToPostRemove(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +109,7 @@ func TestRouterRemoveInterfaceFallsBackToPostRemove(t *testing.T) {
 }
 
 func TestRouterRemoveInterfaceFallsBackWhenDeleteResponseStatusFalse(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +158,7 @@ func TestRouterRemoveInterfaceFallsBackWhenDeleteResponseStatusFalse(t *testing.
 }
 
 func TestRouterRemoveInterfaceFallsBackToPostRemoveOnBadRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +208,7 @@ func TestRouterRemoveInterfaceFallsBackToPostRemoveOnBadRequest(t *testing.T) {
 }
 
 func TestRouterRemoveInterfaceFallbackStatusFalseReturnsUsefulError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -273,7 +272,7 @@ func assertRouterInterfacePayload(t *testing.T, r *http.Request) {
 }
 
 func TestRouterDeleteStillUsesRouterPayload(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
