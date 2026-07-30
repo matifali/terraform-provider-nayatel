@@ -363,12 +363,16 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	tflog.Debug(ctx, "Stopping instance before deletion", map[string]any{"id": data.ID.ValueString()})
 
-	// Stop instance first. Delete itself blocks server-side until the
-	// instance actually stops, so no client-side wait is needed here
-	// (confirmed live: Delete succeeds immediately after Stop returns).
+	// Delete only a fully stopped instance. Deleting during the
+	// powering-off transition can abort the API's delete cascade partway,
+	// leaking a network port that blocks network deletion and billing
+	// entries that keep charging; the portal enforces the same SHUTOFF
+	// gate before it issues a delete.
 	_, err := r.client.Instances.Stop(ctx, data.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		tflog.Warn(ctx, "Failed to stop instance", map[string]any{"error": err.Error()})
+	} else if _, err := r.client.Instances.WaitForStatus(ctx, data.ID.ValueString(), client.InstanceStatusStopped, 5*time.Minute); err != nil {
+		tflog.Warn(ctx, "Instance did not reach SHUTOFF before deletion; deleting anyway", map[string]any{"error": err.Error()})
 	}
 
 	tflog.Debug(ctx, "Deleting instance", map[string]any{"id": data.ID.ValueString()})

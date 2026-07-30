@@ -90,6 +90,8 @@ func testInstanceResourceDelete(t *testing.T, deleteRootVolume bool, volumeDelet
 			}
 		case "/api/iaas/instance/" + instanceID + "/state":
 			_, _ = w.Write([]byte(`{"status":true,"message":"stopped"}`))
+		case "/api/iaas/project/proj-1":
+			_, _ = w.Write([]byte(`[{"Instance ID":"` + instanceID + `","Name":"` + instanceName + `","Status":"SHUTOFF"}]`))
 		case "/api/iaas/user/test-user/instance/" + instanceID + "/delete":
 			if r.URL.Query().Get("delete_root_volume") == "true" {
 				sawDeleteRootVolumeFlag.Store(true)
