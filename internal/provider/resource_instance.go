@@ -91,7 +91,7 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 				},
 			},
 			"image_id": schema.StringAttribute{
-				MarkdownDescription: "ID of the OS image to use. Changing this forces a new resource.",
+				MarkdownDescription: "ID of the OS image to use. Image IDs are not stable — Nayatel replaces its image catalog over time — so resolve the ID by name via the `nayatel_image` data source instead of hardcoding it. Changing this forces a new resource.",
 				Required:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),

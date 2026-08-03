@@ -1,3 +1,9 @@
+## Unreleased
+
+BUG FIXES:
+
+* `nayatel_instance` destroy now waits for the instance to reach `SHUTOFF` before deleting it (adds ~20-30 seconds). Deleting an instance mid-shutdown can abort the API's delete cascade partway, leaving an orphaned network port that blocks deleting the network (`"This network is in use"` with zero instances) and stale billing entries that keep charging; the portal enforces the same stopped-first gate
+
 ## 0.0.7
 
 FEATURES:

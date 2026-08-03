@@ -50,7 +50,7 @@ resource "nayatel_instance" "web" {
 
 - `cpu` (Number) Number of vCPUs. Changing this forces a new resource.
 - `disk` (Number) Root disk size in GB. Changing this forces a new resource.
-- `image_id` (String) ID of the OS image to use. Changing this forces a new resource.
+- `image_id` (String) ID of the OS image to use. Image IDs are not stable — Nayatel replaces its image catalog over time — so resolve the ID by name via the `nayatel_image` data source instead of hardcoding it. Changing this forces a new resource.
 - `name` (String) Name of the instance. Changing this forces a new resource.
 - `network_id` (String) ID of the network to attach the instance to. Changing this forces a new resource.
 - `ram` (Number) RAM in GB. Changing this forces a new resource.
