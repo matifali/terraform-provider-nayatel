@@ -19,7 +19,7 @@ provider "nayatel" {
 # Set this to false to run only the lower-cost smoke-test resources.
 #
 # The default creates a complete, billable instance stack with network, router,
-# SSH key, security group rules, a data volume, floating IP, and an HTTPS bootstrap.
+# SSH key, security group rules, floating IP, and an HTTPS bootstrap.
 #
 # Nayatel router-interface detach can be unreliable. This disposable example
 # explicitly allows the router resource to delete its Terraform-managed network
@@ -27,13 +27,7 @@ provider "nayatel" {
 variable "enable_compute_example" {
   type        = bool
   default     = true
-  description = "Create router, instance, data volume, floating IP, and security group attachment example resources. These are billable and may require manual router cleanup."
-}
-
-variable "data_volume_size" {
-  type        = number
-  default     = 10
-  description = "Size in GB of the example data volume attached to the instance."
+  description = "Create router, instance, floating IP, and security group attachment example resources. These are billable and may require manual router cleanup."
 }
 
 variable "network_bandwidth_limit" {
@@ -170,30 +164,6 @@ resource "nayatel_security_group_attachment" "ssh" {
 
   instance_id         = nayatel_instance.web[0].id
   security_group_name = nayatel_security_group.ssh.name
-}
-
-# =============================================================================
-# Data Volume
-# =============================================================================
-# A separate volume attached to the instance, in addition to its root disk.
-
-resource "nayatel_volume" "data" {
-  count = var.enable_compute_example ? 1 : 0
-
-  name        = "terraform-data"
-  size        = var.data_volume_size
-  description = "Example data volume"
-}
-
-resource "nayatel_volume_attachment" "data" {
-  count = var.enable_compute_example ? 1 : 0
-
-  volume_id   = nayatel_volume.data[0].id
-  instance_id = nayatel_instance.web[0].id
-}
-
-output "data_volume_device" {
-  value = try(nayatel_volume_attachment.data[0].device, null)
 }
 
 # =============================================================================
